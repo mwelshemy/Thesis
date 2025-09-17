@@ -1,0 +1,234 @@
+body {
+  margin: 0;
+  font-family: 'Segoe UI', 'Arial', sans-serif;
+  background: #f6f8fa;
+  color: #24292e;
+}
+.github-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #24292e;
+  color: #fff;
+  padding: 0.6em 2em;
+  position: relative;
+}
+.github-header .logo {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.github-header .logo img {
+  width: 32px;
+  height: 32px;
+}
+.github-header nav {
+  display: flex;
+  gap: 0.5em;
+}
+.github-header nav a {
+  color: #fff;
+  text-decoration: none;
+  margin-left: 1.5em;
+  font-weight: 500;
+  padding: 0.3em 1em;
+  border-radius: 6px;
+  transition: color 0.2s, background 0.2s;
+  position: relative;
+}
+.github-header nav a.active,
+.github-header nav a:focus {
+  background: #2ea44f;
+  color: #fff;
+}
+.github-header nav a:hover {
+  color: #2ea44f;
+  background: #f6f8fa;
+}
+main {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  min-height: 80vh;
+  padding: 2em 0;
+}
+.chat-container {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 4px 24px rgba(36,41,46,0.12);
+  padding: 2em;
+  width: 100%;
+  max-width: 500px;
+  min-height: 500px;
+  display: flex;
+  flex-direction: column;
+  animation: fadeInUp 0.5s;
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(30px);}
+  to { opacity: 1; transform: translateY(0);}
+}
+.chat-header {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #e1e4e8;
+  padding-bottom: 1em;
+  margin-bottom: 1em;
+  gap: 0.5em;
+}
+.chat-header img {
+  width: 32px;
+  height: 32px;
+}
+.chat-header span {
+  font-size: 1.2em;
+  font-weight: 600;
+}
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 1em;
+  padding-right: 0.5em;
+}
+.message {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 1em;
+  animation: fadeIn 0.3s;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px);}
+  to { opacity: 1; transform: translateY(0);}
+}
+.message .avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  margin-right: 0.7em;
+  flex-shrink: 0;
+  background: #e1e4e8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain; /* <--- THIS FIXES THE ZOOMING ISSUE! */
+  border-radius: 50%;
+  display: block;
+  background: #fff;
+}
+.message .text {
+  background: #f1f8ff;
+  border-radius: 8px;
+  padding: 0.8em 1em;
+  max-width: 70%;
+  font-size: 1em;
+  line-height: 1.5;
+  box-shadow: 0 1px 6px rgba(36,41,46,0.07);
+  transition: background 0.2s, color 0.2s;
+}
+.message.user .text {
+  background: #e6ffed;
+}
+#chat-form {
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+  margin-top: 1em;
+}
+#chat-input {
+  flex: 1;
+  padding: 0.7em;
+  border-radius: 6px;
+  border: 1px solid #e1e4e8;
+  font-size: 1em;
+  outline: none;
+  transition: box-shadow 0.2s, border 0.2s;
+  box-shadow: 0 2px 8px rgba(36,41,46,0.05);
+}
+#chat-input:focus {
+  border-color: #2ea44f;
+  box-shadow: 0 2px 12px rgba(46,164,79,0.07);
+}
+#chat-form button {
+  padding: 0.7em 1.4em;
+  background: linear-gradient(90deg, #2ea44f, #22863a);
+  border: none;
+  border-radius: 6px;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 1em;
+  transition: background 0.2s;
+  box-shadow: 0 2px 8px rgba(36,41,46,0.05);
+}
+#chat-form button:hover {
+  background: linear-gradient(90deg, #22863a, #2ea44f);
+}
+footer {
+  text-align: center;
+  padding: 2em 0 1em 0;
+  color: #586069;
+  font-size: 0.9em;
+}
+@media (max-width: 600px) {
+  .chat-container {
+    padding: 1em;
+    min-width: unset;
+    max-width: 98vw;
+  }
+  main {
+    padding: 0.5em 0;
+  }
+  .github-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.8em;
+    padding: 1em;
+  }
+}
+body[data-theme="dark"] {
+  background: #181a1b;
+  color: #c9d1d9;
+}
+.github-header[data-theme="dark"] {
+  background: #0d1117;
+  color: #c9d1d9;
+}
+.github-header[data-theme="dark"] nav a {
+  color: #c9d1d9;
+}
+.github-header[data-theme="dark"] nav a:hover,
+.github-header[data-theme="dark"] nav a.active {
+  color: #fff;
+  background: #238636;
+}
+.chat-container[data-theme="dark"], .settings-container[data-theme="dark"] {
+  background: #21262d;
+  box-shadow: 0 4px 24px rgba(36,41,46,0.2);
+}
+.chat-header[data-theme="dark"], .settings-header[data-theme="dark"] {
+  border-bottom: 1px solid #30363d;
+}
+.message .text[data-theme="dark"] {
+  background: #161b22;
+  color: #c9d1d9;
+}
+.message.user .text[data-theme="dark"] {
+  background: #243e28;
+}
+#chat-input[data-theme="dark"] {
+  background: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+}
+#chat-form button[data-theme="dark"], #settings-form button[data-theme="dark"] {
+  background: #238636;
+  color: #c9d1d9;
+}
+footer[data-theme="dark"] {
+  color: #8b949e;
+}
