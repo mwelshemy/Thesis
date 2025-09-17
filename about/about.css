@@ -1,0 +1,46 @@
+.about-container {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(36,41,46,0.1);
+  padding: 2em;
+  width: 100%;
+  max-width: 640px;
+  margin: 2em auto;
+  min-height: 350px;
+  display: flex;
+  flex-direction: column;
+}
+
+.about-header {
+  font-size: 1.3em;
+  font-weight: 600;
+  margin-bottom: 1em;
+  color: #2ea44f;
+}
+
+.about-content {
+  font-size: 1.05em;
+  color: #24292e;
+}
+
+.about-content ul {
+  padding-left: 1.5em;
+}
+
+.about-content li {
+  margin-bottom: 0.5em;
+}
+
+/* Dark mode support */
+body[data-theme="dark"] .about-container {
+  background: #21262d;
+  color: #c9d1d9;
+}
+
+body[data-theme="dark"] .about-header {
+  color: #58a6ff;
+}
+
+body[data-theme="dark"] .about-content {
+  color: #c9d1d9;
+}

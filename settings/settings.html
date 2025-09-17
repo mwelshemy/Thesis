@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link rel="stylesheet" href="../assets/style.css">
+  <link rel="stylesheet" href="settings.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings - Code Retrieving Using AI</title>
+</head>
+<body>
+  <header class="github-header">
+    <div class="logo">
+      <span>Code Retrieving Using AI</span>
+    </div>
+    <nav>
+      <a href="../index.html">Home</a>
+      <a href="settings.html">Settings</a>
+    </nav>
+  </header>
+  <main>
+    <section class="settings-container">
+      <div class="settings-header">
+        <span>Settings</span>
+      </div>
+      <form id="settings-form">
+        <div class="form-group">
+          <label for="theme-select">Theme:</label>
+          <select id="theme-select" name="theme">
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+      
+        <div class="form-group">
+          <label>
+            <input type="checkbox" id="code-highlighting" name="code-highlighting" checked />
+            Enable code highlighting
+          </label>
+        </div>
+        <button type="submit">Save Settings</button>
+      </form>
+      <div id="settings-message"></div>
+    </section>
+  </main>
+  <script src="../assets/theme.js"></script>
+  <script src="settings.js"></script>
+</body>
+</html>
