@@ -1,7 +1,0 @@
-C:\Users\youss\OneDrive\Documents\Frontend\Backend\obj\Debug\net6.0\rpswa.dswa.cache.json
-C:\Users\youss\OneDrive\Documents\Frontend\Backend\obj\Debug\net6.0\Backend.GeneratedMSBuildEditorConfig.editorconfig
-C:\Users\youss\OneDrive\Documents\Frontend\Backend\obj\Debug\net6.0\Backend.AssemblyInfoInputs.cache
-C:\Users\youss\OneDrive\Documents\Frontend\Backend\obj\Debug\net6.0\Backend.AssemblyInfo.cs
-C:\Users\youss\OneDrive\Documents\Frontend\Backend\obj\Debug\net6.0\Backend.csproj.CoreCompileInputs.cache
-C:\Users\youss\OneDrive\Documents\Frontend\Backend\obj\Debug\net6.0\Backend.MvcApplicationPartsAssemblyInfo.cache
-C:\Users\youss\OneDrive\Documents\Frontend\Backend\obj\Debug\net6.0\Backend.sourcelink.json
