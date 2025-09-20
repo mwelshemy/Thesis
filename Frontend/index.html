@@ -4,12 +4,15 @@
   <link rel="stylesheet" href="assets/style.css">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Code Retrieving Using AI</title>
+  <title>CodeLingo</title>
 </head>
 <body>
   <header class="github-header">
     <div class="logo">
-      <span>Code Retrieving Using AI</span>
+      <button id="sidebar-toggle" class="hamburger-btn" aria-label="Open sidebar">
+        <span></span><span></span><span></span>
+      </button>
+      <span>CodeLingo</span>
     </div>
     <nav>
       <a href="index.html">Home</a>
@@ -17,6 +20,7 @@
       <a href="settings/settings.html">Settings</a>
     </nav>
   </header>
+  <div id="sidebar-container"></div>
   <main>
     <section class="chat-container">
       <div class="chat-header">
@@ -32,7 +36,24 @@
       </div>
       <form id="chat-form">
         <input type="text" id="chat-input" placeholder="Ask something about code, conversion, or improvement..." autocomplete="off" />
-        <button type="submit">Send</button>
+        <div class="form-actions">
+          <div class="dropdown-upload">
+            <button type="button" class="dropdown-btn">Upload <span>▼</span></button>
+            <div class="dropdown-content">
+              <label>
+                <input type="file" id="file-upload" accept=".py,.js,.java,.cpp,.c,.cs,.txt,.ts,.go,.rb,.php,.html,.css,.json" style="display:none;">
+                <span>Single File</span>
+              </label>
+              <label>
+                <input type="file" id="zip-upload" accept=".zip" style="display:none;">
+                <span>ZIP (Multiple Files)</span>
+              </label>
+            </div>
+          </div>
+          <button type="submit" id="send-btn">Send</button>
+        </div>
+        <span class="upload-filename" id="upload-filename"></span>
+        <button class="upload-clear" id="upload-clear" style="display:none;">Clear</button>
       </form>
     </section>
   </main>
