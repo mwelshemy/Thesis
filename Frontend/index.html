@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -16,7 +15,7 @@
       <span>CodeLingo</span>
     </div>
     <nav>
-      <a href="index.html">Home</a>
+      <a href="index.html" class="active">Home</a>
       <a href="about/about.html">About</a>
       <a href="settings/settings.html">Settings</a>
     </nav>
@@ -32,21 +31,23 @@
           <div class="avatar bot-avatar">
             <img src="Images/bot.png" alt="Bot Icon">
           </div>
-          <div class="text">Hello! How can I help you retrieve code, convert code between languages, or suggest improvements?</div>
+          <div class="text">
+            Hello! How can I help you retrieve code, convert code between languages, or suggest improvements?
+          </div>
         </div>
       </div>
-      <form id="chat-form">
+      <form id="chat-form" autocomplete="off">
         <input type="text" id="chat-input" placeholder="Ask something about code, conversion, or improvement..." autocomplete="off" />
         <div class="form-actions">
           <div class="dropdown-upload">
             <button type="button" class="dropdown-btn">Upload <span>▼</span></button>
             <div class="dropdown-content">
               <label>
-                <input type="file" id="file-upload" accept=".py,.js,.java,.cpp,.c,.cs,.txt,.ts,.go,.rb,.php,.html,.css,.json" style="display:none;">
+                <input type="file" id="file-upload" accept=".py,.js,.java,.cpp,.c,.cs,.txt,.ts,.go,.rb,.php,.html,.css,.json">
                 <span>Single File</span>
               </label>
               <label>
-                <input type="file" id="zip-upload" accept=".zip" style="display:none;">
+                <input type="file" id="zip-upload" accept=".zip">
                 <span>ZIP (Multiple Files)</span>
               </label>
             </div>
@@ -56,52 +57,18 @@
         <span class="upload-filename" id="upload-filename"></span>
         <button class="upload-clear" id="upload-clear" style="display:none;">Clear</button>
       </form>
-    </section>
-  </main>
-  <script src="assets/theme.js"></script>
-  <script src="assets/script.js"></script>
-</body>
-=======
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <link rel="stylesheet" href="assets/style.css">
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Code Retrieving Using AI</title>
-</head>
-<body>
-  <header class="github-header">
-    <div class="logo">
-      <span>Code Retrieving Using AI</span>
-    </div>
-    <nav>
-      <a href="index.html">Home</a>
-      <a href="about/about.html">About</a>
-      <a href="settings/settings.html">Settings</a>
-    </nav>
-  </header>
-  <main>
-    <section class="chat-container">
-      <div class="chat-header">
-        <span>AI Chat</span>
-      </div>
-      <div class="chat-messages" id="chat-messages">
-        <div class="message bot">
-          <div class="avatar bot-avatar">
-            <img src="Images/bot.png" alt="Bot Icon">
-          </div>
-          <div class="text">Hello! How can I help you retrieve code, convert code between languages, or suggest improvements?</div>
-        </div>
-      </div>
-      <form id="chat-form">
-        <input type="text" id="chat-input" placeholder="Ask something about code, conversion, or improvement..." autocomplete="off" />
-        <button type="submit">Send</button>
+      <div id="upload-status" class="status" style="display:none;"></div>
+      <form id="search-form" style="margin-top:20px;">
+        <input type="text" id="search-input" placeholder="Search keyword..." />
+        <button type="submit" id="search-btn">Search</button>
       </form>
+      <pre id="search-results" class="search-results"></pre>
     </section>
   </main>
+  <footer>
+    &copy; 2025 CodeLingo &mdash; All rights reserved.
+  </footer>
   <script src="assets/theme.js"></script>
   <script src="assets/script.js"></script>
 </body>
->>>>>>> 58f9a436dbdee2274d5c1204cd8c681f427425bd
 </html>
