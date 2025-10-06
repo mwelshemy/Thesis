@@ -1,4 +1,3 @@
-import * as vscode from 'vscode';
 
 /**
  * Calls Hugging Face AI API with the given prompt

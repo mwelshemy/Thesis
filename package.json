@@ -32,6 +32,16 @@
         "command": "vs-code-ai-extension.summarizeFile",
         "title": "Summarize File",
         "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.buildSearchIndex",
+        "title": "Build Search Index",
+        "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.searchStats",
+        "title": "Search Statistics",
+        "category": "VS AI"
       }
     ]
   },
@@ -57,9 +67,8 @@
     "ts-node": "^10.9.0",
     "typescript": "^5.0.0"
   },
-  "type": "commonjs",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YOUR_USERNAME/vs-code-ai-extension.git"
+    "url": "https://github.com/mohamedwaleedelshemy/Thesis.git"
   }
 }
