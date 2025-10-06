@@ -17,6 +17,21 @@
         "command": "vs-code-ai-extension.helloWorld",
         "title": "Hello World",
         "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.askAI",
+        "title": "Ask AI: Explain Code",
+        "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.searchProject",
+        "title": "Search Project",
+        "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.summarizeFile",
+        "title": "Summarize File",
+        "category": "VS AI"
       }
     ]
   },
