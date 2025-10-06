@@ -1,48 +1,19 @@
 {
-  "name": "Thesis",
-  "displayName": "VS Code AI Extension",
-  "description": "AI-powered code understanding and navigation",
-  "engines": {
-    "vscode": "^1.82.0"
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2020",
+    "outDir": "out",
+    "lib": ["ES2020", "DOM"],
+    "sourceMap": true,
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "removeComments": true
   },
-  "categories": [
-    "Other"
-  ],
-  "activationEvents": [],
-  "main": "./out/extension.js",
-  "contributes": {
-    "commands": [
-      {
-        "command": "vs-code-ai-extension.helloWorld",
-        "title": "Hello World",
-        "category": "VS AI"
-      }
-    ]
-  },
-  "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p .",
-    "watch": "tsc -w -p .",
-    "lint": "eslint src --ext .ts,.tsx",
-    "lint:fix": "eslint src --ext .ts,.tsx --fix",
-    "pretest": "npm run compile",
-    "test": "vscode-test"
-  },
-  "devDependencies": {
-    "@types/vscode": "^1.82.0",
-    "@types/node": "^18.0.0",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
-    "@typescript-eslint/parser": "^6.0.0",
-    "eslint": "^8.0.0",
-    "prettier": "^3.0.0",
-    "typescript": "^5.0.0",
-    "ts-node": "^10.9.0",
-    "husky": "^8.0.0",
-    "@vscode/test-cli": "^0.0.4",
-    "@vscode/test-electron": "^2.3.4"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/mohamedwaleedelshemy/Thesis"
-  }
+  "include": ["src/**/*", "ai/**/*"],
+  "exclude": ["node_modules", ".vscode-test", "out"]
 }
