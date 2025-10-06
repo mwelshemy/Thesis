@@ -14,6 +14,6 @@
     "declaration": false,
     "removeComments": true
   },
-  "include": ["src/**/*", "ai/**/*"],
+  "include": ["src/**/*", "out/src/ai"],
   "exclude": ["node_modules", ".vscode-test", "out"]
 }
