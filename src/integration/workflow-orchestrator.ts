@@ -1,14 +1,19 @@
 /**
- * SIMPLE Workflow Orchestrator - Standalone version without complex imports
+ * REAL Workflow Orchestrator for AI + Search Integration
+ * Now with actual AI and Search component integration
  */
 
-// Simple interface definitions
+import { callAI, callAIMock } from '../ai/callAI';
+import { searchIndex, buildSearchIndex, FileIndexEntry } from '../search';
+import { buildEnhancedPrompt, buildSimpleContextPrompt } from './context-builder';
+
 export interface WorkflowResult {
   success: boolean;
   response: string;
   contextUsed: string[];
   searchResultsCount: number;
   workflowTime: number;
+  error?: string;
 }
 
 export interface AnalysisRequest {
@@ -16,38 +21,6 @@ export interface AnalysisRequest {
   userQuery?: string;
   useEnhancedContext?: boolean;
   maxSearchResults?: number;
-}
-
-/**
- * Mock AI call for testing - will be replaced with real implementation
- */
-async function mockAICall(prompt: string): Promise<string> {
-  // This is a mock - in real implementation, this will call the actual AI
-  return `🤖 MOCK AI RESPONSE: This is a simulated AI response for prompt: "${prompt.substring(0, 100)}..."\n\nIn a real environment, this would call the Hugging Face API with your actual token.`;
-}
-
-/**
- * Mock search function for testing
- */
-function mockSearch(query: string, maxResults: number = 10): any[] {
-  // Mock search results
-  return [
-    {
-      fileName: 'example.ts',
-      content: 'function example() { return "This is an example function"; }',
-      language: 'typescript'
-    },
-    {
-      fileName: 'utils.js', 
-      content: 'export function helper() { console.log("Helper function"); }',
-      language: 'javascript'
-    },
-    {
-      fileName: 'main.ts',
-      content: 'interface User { name: string; age: number; }',
-      language: 'typescript'
-    }
-  ].slice(0, maxResults);
 }
 
 /**
@@ -61,41 +34,53 @@ export async function smartCodeAnalysis(
   try {
     console.log('🚀 Starting smart code analysis workflow...');
 
-    // Step 1: Mock search for relevant context
-    const searchQuery = request.userQuery || 'function class interface';
-    const searchResults = mockSearch(searchQuery, request.maxSearchResults || 10);
+    // Step 1: Ensure search index is built
+    await buildSearchIndex();
+    console.log('✅ Search index ready');
 
-    console.log(`🔍 Found ${searchResults.length} relevant files`);
+    // Step 2: Search for relevant context
+    const searchQuery = generateSearchQuery(request.selectedCode, request.userQuery);
+    console.log(`🔍 Searching for: "${searchQuery}"`);
+    
+    const searchResults = searchIndex(searchQuery, request.maxSearchResults || 10);
+    console.log(`📁 Found ${searchResults.length} relevant files`);
 
-    // Step 2: Build enhanced prompt
+    // Step 3: Build enhanced prompt using real context builder
     const basePrompt = request.userQuery || 'Please analyze this code:';
     let enhancedPrompt: string;
     let contextUsed: string[] = [];
 
     if (request.useEnhancedContext && searchResults.length > 0) {
-      // Simple context building
-      const context = searchResults
-        .slice(0, 3)
-        .map((result: any) => `From ${result.fileName}:\n${result.content.substring(0, 300)}...`)
-        .join('\n\n');
-      
-      enhancedPrompt = `${basePrompt}
-
-Code to analyze:
-${request.selectedCode}
-
-Project context:
-${context}`;
-      
-      contextUsed = searchResults.slice(0, 3).map((r: any) => r.fileName);
+      const enhanced = buildEnhancedPrompt(basePrompt, request.selectedCode, searchResults);
+      enhancedPrompt = enhanced.fullPrompt;
+      contextUsed = enhanced.context;
+      console.log(`📝 Built enhanced prompt with ${contextUsed.length} context files`);
     } else {
-      enhancedPrompt = `${basePrompt}\n\n${request.selectedCode}`;
-      contextUsed = [];
+      enhancedPrompt = buildSimpleContextPrompt(basePrompt, request.selectedCode, searchResults);
+      contextUsed = searchResults.slice(0, 3).map((r) => r.fileName);
+      console.log('📝 Using simple prompt format');
     }
 
-    // Step 3: Call AI with enhanced context
+    // Step 4: Call REAL AI with enhanced context
     console.log('🤖 Calling AI with enhanced context...');
-    const aiResponse = await mockAICall(enhancedPrompt);
+    let aiResponse: string;
+
+    // Use real AI if token available, otherwise use mock with warning
+    const hasAIToken = process.env.HUGGINGFACE_API_TOKEN && 
+                       !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here');
+    
+    if (hasAIToken) {
+      console.log('🔐 Using real Hugging Face API');
+      aiResponse = await callAI(enhancedPrompt);
+    } else {
+      console.log('🎭 Using mock AI response (no valid token found)');
+      aiResponse = await callAIMock(enhancedPrompt);
+    }
+
+    // Step 5: Handle AI response
+    if (aiResponse.startsWith('ERROR:')) {
+      throw new Error(`AI call failed: ${aiResponse}`);
+    }
 
     const workflowTime = Date.now() - startTime;
 
@@ -118,8 +103,56 @@ ${context}`;
       contextUsed: [],
       searchResultsCount: 0,
       workflowTime,
+      error: error.message
     };
   }
+}
+
+/**
+ * Generate intelligent search query from code and user input
+ */
+function generateSearchQuery(selectedCode: string, userQuery?: string): string {
+  if (userQuery) {
+    return userQuery;
+  }
+
+  // Extract potential search terms from code
+  const lines = selectedCode.split('\n').slice(0, 5);
+  const terms = new Set<string>();
+
+  lines.forEach((line) => {
+    // Look for function names, variables, etc.
+    const functionMatch = line.match(/(function|const|let|var)\s+(\w+)/);
+    if (functionMatch && functionMatch[2]) {
+      terms.add(functionMatch[2]);
+    }
+
+    // Look for class/interface names
+    const classMatch = line.match(/(class|interface)\s+(\w+)/);
+    if (classMatch && classMatch[2]) {
+      terms.add(classMatch[2]);
+    }
+
+    // Look for imports and exports
+    const importMatch = line.match(/(import|export).*?from\s+['"]([^'"]+)['"]/);
+    if (importMatch && importMatch[2]) {
+      terms.add(importMatch[2].split('/').pop() || '');
+    }
+  });
+
+  // Filter out empty terms and take top 3
+  const validTerms = Array.from(terms).filter(term => term && term.length > 2).slice(0, 3);
+  
+  if (validTerms.length > 0) {
+    return validTerms.join(' ');
+  }
+
+  // Fallback to code structure analysis
+  if (selectedCode.includes('function')) return 'function';
+  if (selectedCode.includes('class')) return 'class';
+  if (selectedCode.includes('interface')) return 'interface';
+  
+  return 'code pattern';
 }
 
 /**
@@ -130,7 +163,7 @@ export async function quickCodeAnalysis(
 ): Promise<WorkflowResult> {
   return smartCodeAnalysis({
     selectedCode,
-    userQuery: 'Explain this code briefly:',
+    userQuery: 'Explain this code briefly and clearly:',
     useEnhancedContext: false,
     maxSearchResults: 3,
   });
@@ -144,7 +177,7 @@ export async function deepCodeAnalysis(
 ): Promise<WorkflowResult> {
   return smartCodeAnalysis({
     selectedCode,
-    userQuery: 'Analyze this code in depth, considering project patterns and best practices:',
+    userQuery: 'Analyze this code in depth, considering project patterns, architecture, and best practices. Provide detailed insights:',
     useEnhancedContext: true,
     maxSearchResults: 8,
   });
@@ -158,7 +191,7 @@ export async function patternAnalysis(
 ): Promise<WorkflowResult> {
   return smartCodeAnalysis({
     selectedCode,
-    userQuery: 'Find and explain similar patterns in the project, and suggest improvements:',
+    userQuery: 'Find and explain similar patterns in this project. Compare approaches and suggest improvements:',
     useEnhancedContext: true,
     maxSearchResults: 6,
   });
@@ -176,42 +209,55 @@ export async function analyzeSearchResults(
   try {
     console.log(`🔍 Analyzing search results for: "${searchQuery}"`);
 
-    // Step 1: Mock search for the query
-    const searchResults = mockSearch(searchQuery, maxResults);
+    // Step 1: Search for the query using real search
+    const searchResults = searchIndex(searchQuery, maxResults);
+    console.log(`📊 Found ${searchResults.length} search results`);
 
     if (searchResults.length === 0) {
       return {
         success: true,
-        response: `No results found for "${searchQuery}"`,
+        response: `No results found for "${searchQuery}". Try a different search term or check if files are indexed.`,
         contextUsed: [],
         searchResultsCount: 0,
         workflowTime: Date.now() - startTime,
       };
     }
 
-    // Step 2: Build analysis prompt from search results
+    // Step 2: Build analysis prompt from real search results
     const resultsSummary = searchResults
       .map(
-        (result: any, index: number) =>
-          `Result ${index + 1} - ${result.fileName}:\n${result.content.substring(0, 300)}...`
+        (result, index) =>
+          `--- Result ${index + 1} ---\nFile: ${result.fileName}\nLanguage: ${result.language}\nContent:\n${result.content.substring(0, 400)}...`
       )
       .join('\n\n');
 
-    const analysisPrompt = `Analyze these search results for "${searchQuery}" and provide insights:
+    const analysisPrompt = `Analyze these search results for "${searchQuery}" and provide comprehensive insights:
 
 ${resultsSummary}
 
-Please analyze the patterns, common themes, and provide recommendations:`;
+Please analyze:
+1. Common patterns and themes across these files
+2. Code quality and consistency observations
+3. Potential improvements or refactoring suggestions
+4. Any notable architecture or design patterns`;
 
-    // Step 3: Call AI for analysis
-    const aiResponse = await mockAICall(analysisPrompt);
+    // Step 3: Call REAL AI for analysis
+    let aiResponse: string;
+    const hasAIToken = process.env.HUGGINGFACE_API_TOKEN && 
+                       !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here');
+    
+    if (hasAIToken) {
+      aiResponse = await callAI(analysisPrompt);
+    } else {
+      aiResponse = await callAIMock(analysisPrompt);
+    }
 
     const workflowTime = Date.now() - startTime;
 
     return {
       success: true,
       response: aiResponse,
-      contextUsed: searchResults.map((r: any) => r.fileName),
+      contextUsed: searchResults.map((r) => r.fileName),
       searchResultsCount: searchResults.length,
       workflowTime,
     };
@@ -224,15 +270,67 @@ Please analyze the patterns, common themes, and provide recommendations:`;
       contextUsed: [],
       searchResultsCount: 0,
       workflowTime,
+      error: error.message
     };
   }
 }
 
-// Export for testing
-export default {
-  smartCodeAnalysis,
-  quickCodeAnalysis,
-  deepCodeAnalysis,
-  patternAnalysis,
-  analyzeSearchResults
-};
+/**
+ * Performance test workflow - measure integration performance
+ */
+export async function performanceTest(
+  testCode: string = 'function test() { return "test"; }'
+): Promise<WorkflowResult> {
+  const startTime = Date.now();
+  
+  try {
+    console.log('⏱️ Running performance test...');
+    
+    // Test search performance
+    const searchStart = Date.now();
+    await buildSearchIndex();
+    const searchResults = searchIndex('function', 5);
+    const searchTime = Date.now() - searchStart;
+    
+    // Test AI performance
+    const aiStart = Date.now();
+    const hasAIToken = process.env.HUGGINGFACE_API_TOKEN && 
+                       !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here');
+    let aiResponse: string;
+    
+    if (hasAIToken) {
+      aiResponse = await callAI('Quick test: ' + testCode);
+    } else {
+      aiResponse = await callAIMock('Quick test: ' + testCode);
+    }
+    const aiTime = Date.now() - aiStart;
+    
+    const totalTime = Date.now() - startTime;
+    
+    const performanceReport = `Performance Test Results:
+⏱️ Total Time: ${totalTime}ms
+🔍 Search Time: ${searchTime}ms (${searchResults.length} files)
+🤖 AI Time: ${aiTime}ms
+📊 Files Indexed: ${searchResults.length}
+
+${hasAIToken ? '✅ Using real AI API' : '🎭 Using mock AI (set HUGGINGFACE_API_TOKEN for real performance)'}`;
+
+    return {
+      success: true,
+      response: performanceReport,
+      contextUsed: [],
+      searchResultsCount: searchResults.length,
+      workflowTime: totalTime,
+    };
+  } catch (error: any) {
+    const workflowTime = Date.now() - startTime;
+    
+    return {
+      success: false,
+      response: `Performance test failed: ${error.message}`,
+      contextUsed: [],
+      searchResultsCount: 0,
+      workflowTime,
+    };
+  }
+}

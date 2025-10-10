@@ -75,7 +75,9 @@
     "test": "vscode-test",
     "test:integration": "jest tests/integration/ --verbose",
     "test:basic": "jest tests/integration/basic-integration.test.js --verbose",
-    "test:workflows": "jest tests/integration/workflow-scenarios.test.js --verbose"
+    "test:workflows": "jest tests/integration/workflow-scenarios.test.js --verbose",
+    "test:performance": "jest tests/integration/real-integration.test.js --testNamePattern=\"Performance Integration\" --verbose",
+  "test:integration:real": "jest tests/integration/real-integration.test.js --verbose"
   },
 "devDependencies": {
   "@types/node": "^18.0.0",
