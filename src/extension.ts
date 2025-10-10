@@ -6,11 +6,11 @@ import {
   getSearchStats,
   clearSearchIndex,
   initializeSearch,
-  FileIndexEntry,
+  searchByLanguage,
+  getFileByPath,
 } from './search';
 import {
   smartCodeAnalysis,
-  quickCodeAnalysis,
   deepCodeAnalysis,
   patternAnalysis,
   analyzeSearchResults,
@@ -23,7 +23,7 @@ let aiOutputChannel: vscode.OutputChannel;
 let searchOutputChannel: vscode.OutputChannel;
 
 // ============================================================================
-// COMMAND HANDLER FUNCTIONS (DECLARED BEFORE ACTIVATE)
+// COMMAND HANDLER FUNCTIONS
 // ============================================================================
 
 /**
@@ -62,8 +62,10 @@ async function handleAskAICommand(): Promise<void> {
         let aiResponse: string;
 
         // Check if we have a real API token
-        if (process.env.HUGGINGFACE_API_TOKEN && 
-            !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here')) {
+        if (
+          process.env.HUGGINGFACE_API_TOKEN &&
+          !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here')
+        ) {
           aiResponse = await callAI(prompt);
         } else {
           aiResponse = await callAIMock(prompt);
@@ -123,12 +125,18 @@ async function handleSearchProjectCommand(): Promise<void> {
         progress.report({ increment: 100 });
 
         searchOutputChannel.clear();
-        searchOutputChannel.appendLine(`🔍 SEARCH RESULTS: "${searchQuery || 'all files'}"`);
+        searchOutputChannel.appendLine(
+          `🔍 SEARCH RESULTS: "${searchQuery || 'all files'}"`
+        );
         searchOutputChannel.appendLine('='.repeat(50));
 
         if (results.length === 0) {
-          searchOutputChannel.appendLine('No files found matching your search.');
-          searchOutputChannel.appendLine('Try building the search index first or using different terms.');
+          searchOutputChannel.appendLine(
+            'No files found matching your search.'
+          );
+          searchOutputChannel.appendLine(
+            'Try building the search index first or using different terms.'
+          );
         } else {
           searchOutputChannel.appendLine(`Found ${results.length} files:\n`);
 
@@ -137,7 +145,7 @@ async function handleSearchProjectCommand(): Promise<void> {
             searchOutputChannel.appendLine(`   Path: ${file.filePath}`);
             searchOutputChannel.appendLine(`   Language: ${file.language}`);
             searchOutputChannel.appendLine(`   Lines: ${file.lineCount}`);
-            
+
             // Show preview of content
             const preview = file.content.substring(0, 100).replace(/\n/g, ' ');
             searchOutputChannel.appendLine(`   Preview: ${preview}...`);
@@ -175,7 +183,7 @@ async function handleBuildSearchIndexCommand(): Promise<void> {
 
         // Simulate progress steps
         progress.report({ increment: 20, message: 'Finding files...' });
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise((resolve) => setTimeout(resolve, 500));
 
         progress.report({ increment: 50, message: 'Reading file contents...' });
         const results = await buildSearchIndex();
@@ -205,7 +213,15 @@ async function handleSearchStatsCommand(): Promise<void> {
     searchOutputChannel.appendLine('='.repeat(50));
     searchOutputChannel.appendLine(`Files indexed: ${stats.fileCount}`);
     searchOutputChannel.appendLine(`Total lines: ${stats.totalLines}`);
-    searchOutputChannel.appendLine(`Indexing status: ${stats.isIndexing ? 'In progress' : 'Complete'}`);
+    searchOutputChannel.appendLine(
+      `Indexing status: ${stats.isIndexing ? 'In progress' : 'Complete'}`
+    );
+    searchOutputChannel.appendLine(`Index size: ${stats.totalIndexSize}`);
+    if (stats.lastIndexBuild) {
+      searchOutputChannel.appendLine(
+        `Last build: ${stats.lastIndexBuild.toLocaleString()}`
+      );
+    }
     searchOutputChannel.appendLine('='.repeat(50));
     searchOutputChannel.show();
 
@@ -233,7 +249,8 @@ async function handleSummarizeFileCommand(): Promise<void> {
     }
 
     const fileContent = editor.document.getText();
-    const fileName = editor.document.fileName.split('/').pop() || 'current file';
+    const fileName =
+      editor.document.fileName.split('/').pop() || 'current file';
     const language = editor.document.languageId;
 
     if (!fileContent.trim()) {
@@ -260,8 +277,10 @@ File content:\n\n${fileContent.substring(0, 3000)}`;
 
         let aiResponse: string;
 
-        if (process.env.HUGGINGFACE_API_TOKEN && 
-            !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here')) {
+        if (
+          process.env.HUGGINGFACE_API_TOKEN &&
+          !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here')
+        ) {
           aiResponse = await callAI(prompt);
         } else {
           aiResponse = await callAIMock(prompt);
@@ -569,6 +588,145 @@ async function handleAnalyzeSearchResultsCommand(): Promise<void> {
   }
 }
 
+/**
+ * Handle Search by Language Command - Filter files by programming language
+ */
+async function handleSearchByLanguageCommand(): Promise<void> {
+  try {
+    const languages = [
+      'typescript',
+      'javascript',
+      'python',
+      'java',
+      'css',
+      'html',
+      'markdown',
+    ];
+    const selectedLanguage = await vscode.window.showQuickPick(languages, {
+      placeHolder: 'Select programming language to search',
+    });
+
+    if (!selectedLanguage) {
+      return; // User cancelled
+    }
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `🔍 Searching ${selectedLanguage} files...`,
+        cancellable: false,
+      },
+      async (progress) => {
+        progress.report({ increment: 0 });
+
+        const results = searchByLanguage(selectedLanguage);
+
+        progress.report({ increment: 100 });
+
+        searchOutputChannel.clear();
+        searchOutputChannel.appendLine(
+          `🔍 ${selectedLanguage.toUpperCase()} FILES`
+        );
+        searchOutputChannel.appendLine('='.repeat(50));
+
+        if (results.length === 0) {
+          searchOutputChannel.appendLine(`No ${selectedLanguage} files found.`);
+          searchOutputChannel.appendLine(
+            'Try building the search index first.'
+          );
+        } else {
+          searchOutputChannel.appendLine(
+            `Found ${results.length} ${selectedLanguage} files:\n`
+          );
+
+          results.forEach((file, index) => {
+            searchOutputChannel.appendLine(`${index + 1}. ${file.fileName}`);
+            searchOutputChannel.appendLine(`   Path: ${file.filePath}`);
+            searchOutputChannel.appendLine(`   Lines: ${file.lineCount}`);
+            searchOutputChannel.appendLine(
+              `   Modified: ${file.lastModified.toLocaleString()}`
+            );
+            searchOutputChannel.appendLine('');
+          });
+        }
+
+        searchOutputChannel.appendLine('='.repeat(50));
+        searchOutputChannel.show();
+
+        vscode.window.showInformationMessage(
+          `Found ${results.length} ${selectedLanguage} files`
+        );
+      }
+    );
+  } catch (error: any) {
+    vscode.window.showErrorMessage(`Language search error: ${error.message}`);
+    console.error('Search by Language Error:', error);
+  }
+}
+
+/**
+ * Handle Clear Search Index Command - Clear the in-memory search index
+ */
+async function handleClearSearchIndexCommand(): Promise<void> {
+  try {
+    const choice = await vscode.window.showWarningMessage(
+      'Are you sure you want to clear the search index? This will remove all indexed files.',
+      { modal: true },
+      'Yes, Clear Index'
+    );
+
+    if (choice === 'Yes, Clear Index') {
+      clearSearchIndex();
+      searchOutputChannel.appendLine('🗑️ Search index cleared by user');
+      vscode.window.showInformationMessage('Search index cleared successfully');
+    }
+  } catch (error: any) {
+    vscode.window.showErrorMessage(`Clear index error: ${error.message}`);
+    console.error('Clear Search Index Error:', error);
+  }
+}
+
+/**
+ * Handle Quick File Search Command - Fast search with quick pick
+ */
+async function handleQuickFileSearchCommand(): Promise<void> {
+  try {
+    // Get recent files from index
+    const recentFiles = searchIndex('', 15);
+
+    if (recentFiles.length === 0) {
+      vscode.window.showWarningMessage(
+        'No files indexed. Build search index first.'
+      );
+      return;
+    }
+
+    const quickPickItems = recentFiles.map((file) => ({
+      label: file.fileName,
+      description: file.filePath,
+      detail: `${file.language} • ${file.lineCount} lines`,
+      file: file,
+    }));
+
+    const selected = await vscode.window.showQuickPick(quickPickItems, {
+      placeHolder: 'Search for a file...',
+    });
+
+    if (selected) {
+      // Open the selected file
+      const document = await vscode.workspace.openTextDocument(
+        selected.file.filePath
+      );
+      await vscode.window.showTextDocument(document);
+
+      vscode.window.showInformationMessage(`Opened: ${selected.file.fileName}`);
+    }
+  } catch (error: any) {
+    vscode.window.showErrorMessage(`Quick file search error: ${error.message}`);
+    console.error('Quick File Search Error:', error);
+  }
+}
+
 // ============================================================================
 // EXTENSION ACTIVATION
 // ============================================================================
@@ -583,109 +741,65 @@ export function activate(context: vscode.ExtensionContext) {
   // Initialize search functionality
   searchOutputChannel = initializeSearch(context);
 
-  // Register Hello World command (updated)
-  const helloWorldDisposable = vscode.commands.registerCommand(
-    'vs-code-ai-extension.helloWorld',
-    () => {
+  // Register all commands
+  const commands = [
+    // Hello World command
+    vscode.commands.registerCommand('vs-code-ai-extension.helloWorld', () => {
       const now = new Date().toLocaleString();
       vscode.window.showInformationMessage(
         `Hello World from VS Code AI Extension! Time: ${now}`
       );
-    }
-  );
+    }),
 
-  // Register Ask AI command
-  const askAIDisposable = vscode.commands.registerCommand(
-    'vs-code-ai-extension.askAI',
-    async () => {
-      await handleAskAICommand();
-    }
-  );
+    // AI Commands
+    vscode.commands.registerCommand('vs-code-ai-extension.askAI', handleAskAICommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.summarizeFile', handleSummarizeFileCommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.smartExplain', handleSmartExplainCommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.deepAnalysis', handleDeepAnalysisCommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.patternAnalysis', handlePatternAnalysisCommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.analyzeSearchResults', handleAnalyzeSearchResultsCommand),
 
-  // Register Search Project command (now implemented!)
-  const searchProjectDisposable = vscode.commands.registerCommand(
-    'vs-code-ai-extension.searchProject',
-    async () => {
-      await handleSearchProjectCommand();
-    }
-  );
-
-  // Register Summarize File command
-  const summarizeFileDisposable = vscode.commands.registerCommand(
-    'vs-code-ai-extension.summarizeFile',
-    async () => {
-      await handleSummarizeFileCommand();
-    }
-  );
-
-  // Register Build Search Index command
-  const buildIndexDisposable = vscode.commands.registerCommand(
-    'vs-code-ai-extension.buildSearchIndex',
-    async () => {
-      await handleBuildSearchIndexCommand();
-    }
-  );
-
-  // Register Search Index Stats command
-  const searchStatsDisposable = vscode.commands.registerCommand(
-    'vs-code-ai-extension.searchStats',
-    async () => {
-      await handleSearchStatsCommand();
-    }
-  );
-
-  // Register Smart Explain command
-  const smartExplainDisposable = vscode.commands.registerCommand(
-    'vs-code-ai-extension.smartExplain',
-    async () => {
-      await handleSmartExplainCommand();
-    }
-  );
-
-  // Register Deep Analysis command
-  const deepAnalysisDisposable = vscode.commands.registerCommand(
-    'vs-code-ai-extension.deepAnalysis',
-    async () => {
-      await handleDeepAnalysisCommand();
-    }
-  );
-
-  // Register Pattern Analysis command
-  const patternAnalysisDisposable = vscode.commands.registerCommand(
-    'vs-code-ai-extension.patternAnalysis',
-    async () => {
-      await handlePatternAnalysisCommand();
-    }
-  );
-
-  // Register Analyze Search Results command
-  const analyzeSearchDisposable = vscode.commands.registerCommand(
-    'vs-code-ai-extension.analyzeSearchResults',
-    async () => {
-      await handleAnalyzeSearchResultsCommand();
-    }
-  );
+    // Search Commands
+    vscode.commands.registerCommand('vs-code-ai-extension.searchProject', handleSearchProjectCommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.buildSearchIndex', handleBuildSearchIndexCommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.searchStats', handleSearchStatsCommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.searchByLanguage', handleSearchByLanguageCommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.clearSearchIndex', handleClearSearchIndexCommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.quickFileSearch', handleQuickFileSearchCommand),
+  ];
 
   // Add all commands to subscriptions
-  context.subscriptions.push(
-    helloWorldDisposable,
-    askAIDisposable,
-    searchProjectDisposable,
-    summarizeFileDisposable,
-    buildIndexDisposable,
-    searchStatsDisposable,
-    smartExplainDisposable,
-    deepAnalysisDisposable,
-    patternAnalysisDisposable,
-    analyzeSearchDisposable
-  );
+  commands.forEach(command => context.subscriptions.push(command));
 
-  // Auto-build index on activation
+  console.log(`✅ Registered ${commands.length} commands successfully`);
+
+  // Auto-build index on activation (with delay to let VS Code initialize)
   setTimeout(() => {
-    buildSearchIndex();
-  }, 2000);
+    vscode.window.showInformationMessage('VS AI: Building search index...');
+    buildSearchIndex().then((results) => {
+      if (results.length > 0) {
+        vscode.window.showInformationMessage(
+          `VS AI: Search index ready! ${results.length} files indexed.`
+        );
+      }
+    });
+  }, 3000);
+
+  // Register for workspace changes to auto-update index
+  vscode.workspace.onDidSaveTextDocument((document) => {
+    if (document.fileName.includes('node_modules')) {
+      return; // Skip node_modules
+    }
+    // Debounced index update
+    setTimeout(() => {
+      buildSearchIndex();
+    }, 1000);
+  });
+
+  console.log('✅ All VS AI commands registered successfully');
 }
 
 export function deactivate() {
   // Clean up if needed
+  console.log('VS Code AI Extension deactivated');
 }

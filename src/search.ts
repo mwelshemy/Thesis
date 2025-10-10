@@ -2,208 +2,236 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 
 export interface FileIndexEntry {
-    filePath: string;
-    fileName: string;
-    language: string;
-    content: string;
-    lineCount: number;
-    lastModified: Date;
+  filePath: string;
+  fileName: string;
+  language: string;
+  content: string;
+  lineCount: number;
+  lastModified: Date;
 }
 
-// In-memory search index - renamed to avoid conflict
-let fileIndex: FileIndexEntry[] = [];
+// In-memory search index
+let searchIndexData: FileIndexEntry[] = [];
 let isIndexing = false;
-
-// Output channel for search logs
 let searchOutputChannel: vscode.OutputChannel;
 
 /**
- * Initialize search functionality
+ * Initialize search functionality with output channel and file watchers
  */
-export function initializeSearch(context: vscode.ExtensionContext): vscode.OutputChannel {
-    searchOutputChannel = vscode.window.createOutputChannel('VS Search');
-    context.subscriptions.push(searchOutputChannel);
-    
-    // Auto-reindex on file changes
-    const watcher = vscode.workspace.createFileSystemWatcher('**/*.{ts,js,py,java,cs,cpp,md,json,html,css}');
-    
-    watcher.onDidCreate(() => {
-        logSearch('File created, reindexing...');
-        buildSearchIndex();
-    });
-    
-    watcher.onDidChange(() => {
-        logSearch('File changed, reindexing...');
-        buildSearchIndex();
-    });
-    
-    watcher.onDidDelete(() => {
-        logSearch('File deleted, reindexing...');
-        buildSearchIndex();
-    });
-    
-    context.subscriptions.push(watcher);
-    
-    return searchOutputChannel;
+export function initializeSearch(
+  context: vscode.ExtensionContext
+): vscode.OutputChannel {
+  console.log('🔍 Initializing search functionality...');
+
+  searchOutputChannel = vscode.window.createOutputChannel('VS Search');
+  context.subscriptions.push(searchOutputChannel);
+
+  // Auto-index on workspace changes
+  const watcher = vscode.workspace.createFileSystemWatcher(
+    '**/*.{ts,js,py,java,cs,cpp,md,json,html,css}'
+  );
+
+  watcher.onDidCreate((uri) => {
+    searchOutputChannel.appendLine(`📁 File created: ${uri.fsPath}`);
+    buildSearchIndex(); // Rebuild index on file creation
+  });
+
+  watcher.onDidChange((uri) => {
+    searchOutputChannel.appendLine(`📁 File changed: ${uri.fsPath}`);
+    buildSearchIndex(); // Rebuild index on file changes
+  });
+
+  watcher.onDidDelete((uri) => {
+    searchOutputChannel.appendLine(`📁 File deleted: ${uri.fsPath}`);
+    buildSearchIndex(); // Rebuild index on file deletion
+  });
+
+  context.subscriptions.push(watcher);
+
+  searchOutputChannel.appendLine('✅ Search functionality initialized');
+  return searchOutputChannel;
 }
 
 /**
- * Build search index from workspace files
+ * Build search index by scanning workspace files
  */
 export async function buildSearchIndex(): Promise<FileIndexEntry[]> {
-    if (isIndexing) {
-        logSearch('Indexing already in progress...');
-        return fileIndex;
-    }
+  if (isIndexing) {
+    searchOutputChannel.appendLine('⚠️ Indexing already in progress...');
+    return searchIndexData;
+  }
 
-    isIndexing = true;
-    
-    try {
-        logSearch('Building search index...');
-        
-        // Get all relevant files from workspace
-        const files = await vscode.workspace.findFiles(
-            '**/*.{ts,js,py,java,cs,cpp,md,json,html,css}',
-            '**/node_modules/**'
-        );
+  isIndexing = true;
+  const startTime = Date.now();
 
-        logSearch(`Found ${files.length} files to index`);
+  try {
+    searchOutputChannel.appendLine('📁 Building search index...');
+    searchOutputChannel.appendLine('⏱️ Scanning workspace for files...');
 
-        const newIndex: FileIndexEntry[] = [];
-        let processedFiles = 0;
+    // Find all supported files in workspace
+    const files = await vscode.workspace.findFiles(
+      '**/*.{ts,js,py,java,cs,cpp,md,json,html,css}',
+      '**/node_modules/**' // Exclude node_modules
+    );
 
-        // Process files in batches to avoid overwhelming the system
-        for (const fileUri of files) {
-            try {
-                const document = await vscode.workspace.openTextDocument(fileUri);
-                const fileStats = await vscode.workspace.fs.stat(fileUri);
-                
-                const entry: FileIndexEntry = {
-                    filePath: fileUri.fsPath,
-                    fileName: path.basename(fileUri.fsPath),
-                    language: document.languageId,
-                    content: document.getText(),
-                    lineCount: document.lineCount,
-                    lastModified: new Date(fileStats.mtime)
-                };
+    searchOutputChannel.appendLine(`📊 Found ${files.length} files to index`);
 
-                newIndex.push(entry);
-                processedFiles++;
+    searchIndexData = [];
+    let processedFiles = 0;
+    let skippedFiles = 0;
 
-                // Log progress every 10 files
-                if (processedFiles % 10 === 0) {
-                    logSearch(`Indexed ${processedFiles}/${files.length} files...`);
-                }
+    // Process files in batches for better performance
+    for (const file of files.slice(0, 1000)) {
+      // Limit for performance
+      try {
+        const document = await vscode.workspace.openTextDocument(file);
+        const content = document.getText();
 
-            } catch (error) {
-                logSearch(`Error indexing file ${fileUri.fsPath}: ${error}`);
-            }
+        // Skip very large files to prevent memory issues
+        if (content.length > 100000) {
+          skippedFiles++;
+          continue;
         }
 
-        fileIndex = newIndex;
-        logSearch(`Search index built successfully! ${fileIndex.length} files indexed.`);
-        
-        // Show completion message
-        vscode.window.showInformationMessage(`Search index updated: ${fileIndex.length} files indexed`);
+        const entry: FileIndexEntry = {
+          filePath: file.fsPath,
+          fileName: path.basename(file.fsPath),
+          language: document.languageId,
+          content: content.substring(0, 5000), // Limit content size for performance
+          lineCount: document.lineCount,
+          lastModified: new Date(),
+        };
 
-    } catch (error) {
-        logSearch(`Error building search index: ${error}`);
-        vscode.window.showErrorMessage('Error building search index');
-    } finally {
-        isIndexing = false;
+        searchIndexData.push(entry);
+        processedFiles++;
+
+        // Log progress every 50 files
+        if (processedFiles % 50 === 0) {
+          searchOutputChannel.appendLine(
+            `📁 Processed ${processedFiles} files...`
+          );
+        }
+      } catch (error) {
+        // Skip files that can't be read (binary files, etc.)
+        skippedFiles++;
+        continue;
+      }
     }
 
-    return fileIndex;
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+
+    searchOutputChannel.appendLine(`✅ Search index built in ${duration}ms`);
+    searchOutputChannel.appendLine(
+      `📊 Statistics: ${processedFiles} files indexed, ${skippedFiles} files skipped`
+    );
+    searchOutputChannel.appendLine(
+      `💾 Total index size: ${calculateIndexSize(searchIndexData)}`
+    );
+
+    isIndexing = false;
+    return searchIndexData;
+  } catch (error: any) {
+    searchOutputChannel.appendLine(`❌ Error building index: ${error.message}`);
+    isIndexing = false;
+    return searchIndexData;
+  }
 }
 
 /**
- * Search through the indexed files
+ * Search the index for files matching the query
  */
-export function searchIndex(query: string, maxResults: number = 10): FileIndexEntry[] {
-    if (!query.trim()) {
-        return [];
-    }
+export function searchIndex(
+  query: string,
+  maxResults: number = 10
+): FileIndexEntry[] {
+  if (!query.trim()) {
+    // Return some recent files if no query (for browsing)
+    return searchIndexData
+      .sort((a, b) => b.lastModified.getTime() - a.lastModified.getTime())
+      .slice(0, maxResults);
+  }
 
-    if (fileIndex.length === 0) {
-        logSearch('Search index is empty. Please build index first.');
-        return [];
-    }
+  const startTime = Date.now();
 
-    logSearch(`Searching for: "${query}"`);
-    
-    const lowerQuery = query.toLowerCase();
-    const results: { entry: FileIndexEntry, score: number }[] = [];
+  // Score files based on relevance
+  const scoredResults = searchIndexData
+    .map((file) => {
+      let score = 0;
+      const queryLower = query.toLowerCase();
+      const fileNameLower = file.fileName.toLowerCase();
+      const contentLower = file.content.toLowerCase();
+      const filePathLower = file.filePath.toLowerCase();
 
-    for (const entry of fileIndex) {
-        let score = 0;
+      // Score based on different criteria
+      if (fileNameLower.includes(queryLower)) score += 3; // File name match (highest priority)
+      if (filePathLower.includes(queryLower)) score += 2; // Path match
+      if (contentLower.includes(queryLower)) score += 1; // Content match
 
-        // File name matches (higher weight)
-        if (entry.fileName.toLowerCase().includes(lowerQuery)) {
-            score += 3;
-        }
+      // Exact matches get bonus points
+      if (fileNameLower === queryLower) score += 2;
+      if (file.fileName === query) score += 3;
 
-        // File path matches
-        if (entry.filePath.toLowerCase().includes(lowerQuery)) {
-            score += 2;
-        }
+      return { file, score };
+    })
+    .filter((item) => item.score > 0) // Only include files with matches
+    .sort((a, b) => b.score - a.score) // Sort by relevance
+    .map((item) => item.file)
+    .slice(0, maxResults);
 
-        // Content matches (lower weight)
-        if (entry.content.toLowerCase().includes(lowerQuery)) {
-            score += 1;
-            
-            // Bonus for multiple matches in content
-            const matches = (entry.content.toLowerCase().match(new RegExp(lowerQuery, 'g')) || []).length;
-            score += Math.min(matches * 0.1, 1); // Cap bonus at 1
-        }
+  const endTime = Date.now();
+  const duration = endTime - startTime;
 
-        // Language matches
-        if (entry.language.toLowerCase().includes(lowerQuery)) {
-            score += 1;
-        }
+  searchOutputChannel.appendLine(
+    `🔍 Search for "${query}": ${scoredResults.length} results in ${duration}ms`
+  );
 
-        if (score > 0) {
-            results.push({ entry, score });
-        }
-    }
-
-    // Sort by score (descending) and take top results
-    results.sort((a, b) => b.score - a.score);
-    
-    const finalResults = results.slice(0, maxResults).map(result => result.entry);
-    
-    logSearch(`Found ${finalResults.length} results for "${query}"`);
-    
-    return finalResults;
+  return scoredResults;
 }
 
 /**
- * Get search index statistics
+ * Get search statistics
  */
-export function getSearchStats(): { fileCount: number, totalLines: number, isIndexing: boolean } {
-    const totalLines = fileIndex.reduce((sum: number, entry: FileIndexEntry) => sum + entry.lineCount, 0);
-    
-    return {
-        fileCount: fileIndex.length,
-        totalLines,
-        isIndexing
-    };
+export function getSearchStats() {
+  return {
+    fileCount: searchIndexData.length,
+    totalLines: searchIndexData.reduce((sum, file) => sum + file.lineCount, 0),
+    isIndexing: isIndexing,
+    totalIndexSize: calculateIndexSize(searchIndexData),
+    lastIndexBuild: searchIndexData.length > 0 ? new Date() : null,
+  };
 }
 
 /**
  * Clear the search index
  */
 export function clearSearchIndex(): void {
-    fileIndex = [];
-    logSearch('Search index cleared');
+  searchIndexData = [];
+  searchOutputChannel.appendLine('🗑️ Search index cleared');
 }
 
 /**
- * Log search-related messages
+ * Calculate approximate index size in KB
  */
-function logSearch(message: string): void {
-    const timestamp = new Date().toLocaleTimeString();
-    if (searchOutputChannel) {
-        searchOutputChannel.appendLine(`[${timestamp}] ${message}`);
-    }
-    console.log(`[Search] ${message}`);
+function calculateIndexSize(index: FileIndexEntry[]): string {
+  const totalBytes = index.reduce(
+    (sum, file) =>
+      sum + file.content.length + file.filePath.length + file.fileName.length,
+    0
+  );
+  return `${Math.round(totalBytes / 1024)} KB`;
+}
+
+/**
+ * Get file by path from index
+ */
+export function getFileByPath(filePath: string): FileIndexEntry | undefined {
+  return searchIndexData.find((file) => file.filePath === filePath);
+}
+
+/**
+ * Search by file type/language
+ */
+export function searchByLanguage(language: string): FileIndexEntry[] {
+  return searchIndexData.filter((file) => file.language === language);
 }
