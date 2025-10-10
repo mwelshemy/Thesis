@@ -8,6 +8,14 @@ import {
   initializeSearch,
   FileIndexEntry,
 } from './search';
+// Keep all other imports the same, but update the workflow orchestrator import
+import {
+  smartCodeAnalysis,
+  quickCodeAnalysis,
+  deepCodeAnalysis,
+  patternAnalysis,
+  analyzeSearchResults,
+} from './integration/workflow-orchestrator';
 
 // Global output channel for AI responses
 let aiOutputChannel: vscode.OutputChannel;
@@ -76,6 +84,38 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  // Register Smart Explain command
+  const smartExplainDisposable = vscode.commands.registerCommand(
+    'vs-code-ai-extension.smartExplain',
+    async () => {
+      await handleSmartExplainCommand();
+    }
+  );
+
+  // Register Deep Analysis command
+  const deepAnalysisDisposable = vscode.commands.registerCommand(
+    'vs-code-ai-extension.deepAnalysis',
+    async () => {
+      await handleDeepAnalysisCommand();
+    }
+  );
+
+  // Register Pattern Analysis command
+  const patternAnalysisDisposable = vscode.commands.registerCommand(
+    'vs-code-ai-extension.patternAnalysis',
+    async () => {
+      await handlePatternAnalysisCommand();
+    }
+  );
+
+  // Register Analyze Search Results command
+  const analyzeSearchDisposable = vscode.commands.registerCommand(
+    'vs-code-ai-extension.analyzeSearchResults',
+    async () => {
+      await handleAnalyzeSearchResultsCommand();
+    }
+  );
+
   // Add all commands to subscriptions
   context.subscriptions.push(
     helloWorldDisposable,
@@ -83,7 +123,11 @@ export function activate(context: vscode.ExtensionContext) {
     searchProjectDisposable,
     summarizeFileDisposable,
     buildIndexDisposable,
-    searchStatsDisposable
+    searchStatsDisposable,
+    smartExplainDisposable,
+    deepAnalysisDisposable,
+    patternAnalysisDisposable,
+    analyzeSearchDisposable
   );
 
   // Auto-build index on activation
@@ -405,5 +449,275 @@ File content:\n\n${fileContent.substring(0, 3000)}`;
   } catch (error: any) {
     vscode.window.showErrorMessage(`Error in Summarize File: ${error.message}`);
     console.error('Summarize File Error:', error);
+  }
+}
+
+/**
+ * Handle Smart Explain Command - Enhanced AI with project context
+ */
+async function handleSmartExplainCommand(): Promise<void> {
+  try {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage('No active editor found.');
+      return;
+    }
+
+    const selection = editor.selection;
+    const selectedCode = selection.isEmpty
+      ? editor.document.getText()
+      : editor.document.getText(selection);
+
+    if (!selectedCode.trim()) {
+      vscode.window.showWarningMessage('No code selected or file is empty.');
+      return;
+    }
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: '🤖 Smart Analysis: Searching project context...',
+        cancellable: false,
+      },
+      async (progress) => {
+        progress.report({ increment: 0 });
+
+        const result = await smartCodeAnalysis({
+          selectedCode,
+          userQuery: 'Explain this code considering the project context:',
+          useEnhancedContext: true,
+          maxSearchResults: 6,
+        });
+
+        progress.report({ increment: 100 });
+
+        // Display results
+        aiOutputChannel.clear();
+        aiOutputChannel.appendLine('🧠 SMART CODE EXPLANATION');
+        aiOutputChannel.appendLine('='.repeat(50));
+
+        if (result.success) {
+          aiOutputChannel.appendLine(
+            `✅ Analysis completed in ${result.workflowTime}ms`
+          );
+          aiOutputChannel.appendLine(
+            `📁 Used context from ${result.contextUsed.length} files`
+          );
+          aiOutputChannel.appendLine('');
+          aiOutputChannel.appendLine(result.response);
+
+          // Show context info
+          if (result.contextUsed.length > 0) {
+            aiOutputChannel.appendLine('');
+            aiOutputChannel.appendLine('📚 Context Used:');
+            result.contextUsed.forEach((file: string) => {
+              aiOutputChannel.appendLine(`  - ${file}`);
+            });
+          }
+        } else {
+          aiOutputChannel.appendLine('❌ Analysis failed');
+          aiOutputChannel.appendLine(result.response);
+        }
+
+        aiOutputChannel.appendLine('='.repeat(50));
+        aiOutputChannel.show();
+
+        vscode.window.showInformationMessage(
+          `Smart analysis complete! Used ${result.contextUsed.length} context files.`
+        );
+      }
+    );
+  } catch (error: any) {
+    vscode.window.showErrorMessage(`Smart explain error: ${error.message}`);
+  }
+}
+
+/**
+ * Handle Deep Analysis Command - Comprehensive analysis with full context
+ */
+async function handleDeepAnalysisCommand(): Promise<void> {
+  try {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage('No active editor found.');
+      return;
+    }
+
+    const selectedCode = editor.document.getText(
+      editor.selection.isEmpty ? undefined : editor.selection
+    );
+    if (!selectedCode.trim()) {
+      vscode.window.showWarningMessage('No code selected.');
+      return;
+    }
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: '🔍 Deep Analysis: Comprehensive code review...',
+        cancellable: false,
+      },
+      async (progress) => {
+        progress.report({ increment: 0 });
+
+        const result = await deepCodeAnalysis(selectedCode);
+
+        progress.report({ increment: 100 });
+
+        aiOutputChannel.clear();
+        aiOutputChannel.appendLine('🔍 DEEP CODE ANALYSIS');
+        aiOutputChannel.appendLine('='.repeat(50));
+
+        if (result.success) {
+          aiOutputChannel.appendLine(
+            `✅ Deep analysis completed in ${result.workflowTime}ms`
+          );
+          aiOutputChannel.appendLine(
+            `📁 Analyzed ${result.searchResultsCount} related files`
+          );
+          aiOutputChannel.appendLine('');
+          aiOutputChannel.appendLine(result.response);
+        } else {
+          aiOutputChannel.appendLine('❌ Deep analysis failed');
+          aiOutputChannel.appendLine(result.response);
+        }
+
+        aiOutputChannel.appendLine('='.repeat(50));
+        aiOutputChannel.show();
+
+        vscode.window.showInformationMessage('Deep analysis completed!');
+      }
+    );
+  } catch (error: any) {
+    vscode.window.showErrorMessage(`Deep analysis error: ${error.message}`);
+  }
+}
+
+/**
+ * Handle Pattern Analysis Command - Find and analyze similar patterns
+ */
+async function handlePatternAnalysisCommand(): Promise<void> {
+  try {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+      vscode.window.showWarningMessage('No active editor found.');
+      return;
+    }
+
+    const selectedCode = editor.document.getText(
+      editor.selection.isEmpty ? undefined : editor.selection
+    );
+    if (!selectedCode.trim()) {
+      vscode.window.showWarningMessage('No code selected.');
+      return;
+    }
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: '🎯 Pattern Analysis: Finding similar code patterns...',
+        cancellable: false,
+      },
+      async (progress) => {
+        progress.report({ increment: 0 });
+
+        const result = await patternAnalysis(selectedCode);
+
+        progress.report({ increment: 100 });
+
+        aiOutputChannel.clear();
+        aiOutputChannel.appendLine('🎯 PATTERN ANALYSIS');
+        aiOutputChannel.appendLine('='.repeat(50));
+
+        if (result.success) {
+          aiOutputChannel.appendLine(
+            `✅ Pattern analysis completed in ${result.workflowTime}ms`
+          );
+          aiOutputChannel.appendLine(
+            `📊 Found patterns across ${result.searchResultsCount} files`
+          );
+          aiOutputChannel.appendLine('');
+          aiOutputChannel.appendLine(result.response);
+        } else {
+          aiOutputChannel.appendLine('❌ Pattern analysis failed');
+          aiOutputChannel.appendLine(result.response);
+        }
+
+        aiOutputChannel.appendLine('='.repeat(50));
+        aiOutputChannel.show();
+
+        vscode.window.showInformationMessage('Pattern analysis completed!');
+      }
+    );
+  } catch (error: any) {
+    vscode.window.showErrorMessage(`Pattern analysis error: ${error.message}`);
+  }
+}
+
+/**
+ * Handle Analyze Search Results Command - AI analysis of search results
+ */
+async function handleAnalyzeSearchResultsCommand(): Promise<void> {
+  try {
+    // Get search query from user
+    const searchQuery = await vscode.window.showInputBox({
+      prompt: 'Enter search term to analyze with AI',
+      placeHolder: 'e.g., authentication, API calls, error handling',
+    });
+
+    if (!searchQuery) {
+      return; // User cancelled
+    }
+
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `🤔 AI Analysis: Analyzing search results for "${searchQuery}"...`,
+        cancellable: false,
+      },
+      async (progress) => {
+        progress.report({ increment: 0 });
+
+        const result = await analyzeSearchResults(searchQuery, 8);
+
+        progress.report({ increment: 100 });
+
+        aiOutputChannel.clear();
+        aiOutputChannel.appendLine(`🤔 AI ANALYSIS OF: "${searchQuery}"`);
+        aiOutputChannel.appendLine('='.repeat(50));
+
+        if (result.success) {
+          aiOutputChannel.appendLine(
+            `✅ Analysis completed in ${result.workflowTime}ms`
+          );
+          aiOutputChannel.appendLine(
+            `📁 Analyzed ${result.searchResultsCount} search results`
+          );
+          aiOutputChannel.appendLine('');
+          aiOutputChannel.appendLine(result.response);
+
+          // Show which files were analyzed
+          if (result.contextUsed.length > 0) {
+            aiOutputChannel.appendLine('');
+            aiOutputChannel.appendLine('📚 Files Analyzed:');
+            result.contextUsed.forEach((file: string) => {
+              aiOutputChannel.appendLine(`  - ${file}`);
+            });
+          }
+        } else {
+          aiOutputChannel.appendLine('❌ Analysis failed');
+          aiOutputChannel.appendLine(result.response);
+        }
+
+        aiOutputChannel.appendLine('='.repeat(50));
+        aiOutputChannel.show();
+
+        vscode.window.showInformationMessage(
+          `AI analysis of "${searchQuery}" completed! Analyzed ${result.searchResultsCount} files.`
+        );
+      }
+    );
+  } catch (error: any) {
+    vscode.window.showErrorMessage(`Search analysis error: ${error.message}`);
   }
 }

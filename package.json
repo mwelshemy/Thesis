@@ -42,6 +42,26 @@
         "command": "vs-code-ai-extension.searchStats",
         "title": "Search Statistics",
         "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.smartExplain",
+        "title": "Smart Explain: With Project Context",
+        "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.deepAnalysis",
+        "title": "Deep Analysis: Comprehensive Review",
+        "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.patternAnalysis",
+        "title": "Pattern Analysis: Find Similar Code",
+        "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.analyzeSearchResults",
+        "title": "Analyze Search Results with AI",
+        "category": "VS AI"
       }
     ]
   },
@@ -52,21 +72,27 @@
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "pretest": "npm run compile",
-    "test": "vscode-test"
+    "test": "vscode-test",
+    "test:integration": "jest tests/integration/ --verbose",
+    "test:basic": "jest tests/integration/basic-integration.test.js --verbose",
+    "test:workflows": "jest tests/integration/workflow-scenarios.test.js --verbose"
   },
-  "devDependencies": {
-    "@types/node": "^18.0.0",
-    "@types/vscode": "^1.82.0",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
-    "@typescript-eslint/parser": "^6.0.0",
-    "@vscode/test-cli": "^0.0.4",
-    "@vscode/test-electron": "^2.3.4",
-    "eslint": "^8.0.0",
-    "husky": "^8.0.0",
-    "prettier": "^3.0.0",
-    "ts-node": "^10.9.0",
-    "typescript": "^5.0.0"
-  },
+"devDependencies": {
+  "@types/node": "^18.0.0",
+  "@types/vscode": "^1.82.0",
+  "@typescript-eslint/eslint-plugin": "^6.0.0",
+  "@typescript-eslint/parser": "^6.0.0",
+  "@vscode/test-cli": "^0.0.4",
+  "@vscode/test-electron": "^2.3.4",
+  "eslint": "^8.0.0",
+  "husky": "^8.0.0",
+  "prettier": "^3.0.0",
+  "ts-node": "^10.9.0",
+  "typescript": "^5.0.0",
+  "jest": "^29.0.0",
+  "@types/jest": "^29.0.0",
+  "ts-jest": "^29.0.0"
+},
   "repository": {
     "type": "git",
     "url": "https://github.com/mohamedwaleedelshemy/Thesis.git"
