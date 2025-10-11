@@ -1,11 +1,11 @@
-
 /**
- * Calls Hugging Face AI API with the given prompt
- * Uses Node.js 18+ built-in fetch
+ * Calls Hugging Face AI API with the given prompt.
+ * Uses Node.js 18+ built-in fetch.
  */
 export async function callAI(
   prompt: string,
-  model: string = 'bigcode/starcoder'
+  model: string = 'bigcode/starcoder',
+  temperature: number = 0.7
 ): Promise<string> {
   try {
     const HF_TOKEN = process.env.HUGGINGFACE_API_TOKEN;
@@ -14,7 +14,6 @@ export async function callAI(
       return 'ERROR: HUGGINGFACE_API_TOKEN not set. Please set your API token.';
     }
 
-    // Use Node.js built-in fetch (available in Node.js 18+)
     const response = await fetch(
       `https://api-inference.huggingface.co/models/${model}`,
       {
@@ -27,7 +26,7 @@ export async function callAI(
           inputs: prompt,
           parameters: {
             max_new_tokens: 500,
-            temperature: 0.7,
+            temperature,
           },
           options: {
             wait_for_model: true,
@@ -40,17 +39,11 @@ export async function callAI(
       throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const data = (await response.json()) as any;
+    const data = await response.json();
 
-    if (Array.isArray(data) && data[0]?.generated_text) {
-      return data[0].generated_text;
-    }
-    if (data.generated_text) {
-      return data.generated_text;
-    }
-    if (data.error) {
-      return `ERROR: ${data.error}`;
-    }
+    if (Array.isArray(data) && data[0]?.generated_text) return data[0].generated_text;
+    if (data.generated_text) return data.generated_text;
+    if (data.error) return `ERROR: ${data.error}`;
 
     return JSON.stringify(data, null, 2);
   } catch (error: any) {
@@ -60,7 +53,7 @@ export async function callAI(
 }
 
 /**
- * Mock version for testing
+ * Mock version for testing without a real API token.
  */
 export async function callAIMock(prompt: string): Promise<string> {
   return `MOCK RESPONSE: This is a mock AI response for: "${prompt.substring(0, 100)}..."\n\nIn production, this would call the actual Hugging Face API.`;

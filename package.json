@@ -103,6 +103,7 @@
     "test:integration:real": "jest tests/integration/real-integration.test.js --verbose"
   },
   "devDependencies": {
+    "@types/jest": "^29.0.0",
     "@types/node": "^18.0.0",
     "@types/vscode": "^1.82.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
@@ -111,15 +112,17 @@
     "@vscode/test-electron": "^2.3.4",
     "eslint": "^8.0.0",
     "husky": "^8.0.0",
-    "prettier": "^3.0.0",
-    "ts-node": "^10.9.0",
-    "typescript": "^5.0.0",
     "jest": "^29.0.0",
-    "@types/jest": "^29.0.0",
-    "ts-jest": "^29.0.0"
+    "prettier": "^3.0.0",
+    "ts-jest": "^29.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/mohamedwaleedelshemy/Thesis.git"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3"
   }
 }

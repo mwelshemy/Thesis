@@ -1,37 +1,45 @@
+import 'dotenv/config';
 import { callAI, callAIMock } from './callAI';
 
 /**
- * Test script to verify AI integration works
+ * Test script to verify AI integration works for "Explain" and "Summarize" prompts.
  */
 async function testAI() {
   console.log('🧪 Testing AI Integration...\n');
 
-  const testPrompt = "Explain this code: function hello() { return 'world'; }";
+  // Two test prompts: explain + summarize
+  const testPrompts = [
+    { type: 'Explain', code: "function hello() { return 'world'; }" },
+    { type: 'Summarize', code: "const nums = [1, 2, 3]; const doubled = nums.map(n => n * 2);" },
+  ];
 
-  console.log('📤 Test Prompt:', testPrompt);
-  console.log('---');
+  const useRealAPI = !!process.env.HUGGINGFACE_API_TOKEN;
+  const callFn = useRealAPI ? callAI : callAIMock;
 
-  // Try real API first, fall back to mock
-  let response: string;
+  for (const prompt of testPrompts) {
+    console.log(`📤 ${prompt.type} Prompt:`, prompt.code);
+    console.log('---');
 
-  if (process.env.HUGGINGFACE_API_TOKEN) {
-    console.log('🔐 Using real Hugging Face API...');
-    response = await callAI(testPrompt);
-  } else {
-    console.log('🎭 No API token found, using mock response...');
-    response = await callAIMock(testPrompt);
+    const fullPrompt =
+      prompt.type === 'Explain'
+        ? `Explain what this code does:\n${prompt.code}`
+        : `Summarize the purpose of this code:\n${prompt.code}`;
+
+    if (useRealAPI) console.log('🔐 Using real Hugging Face API...');
+    else console.log('🎭 No API token found, using mock response...');
+
+    const response = await callFn(fullPrompt, "facebook/bart-large-cnn", 0.7);
+
+    console.log('📥 AI Response:\n', response);
+    console.log('---');
+
+    if (response.startsWith('ERROR:')) {
+      console.log('❌ AI test failed with error');
+      process.exit(1);
+    }
   }
 
-  console.log('📥 AI Response:');
-  console.log(response);
-  console.log('---');
-
-  if (response.startsWith('ERROR:')) {
-    console.log('❌ AI test failed with error');
-    process.exit(1);
-  } else {
-    console.log('✅ AI test completed successfully!');
-  }
+  console.log('✅ AI test completed successfully!');
 }
 
 // Run the test
