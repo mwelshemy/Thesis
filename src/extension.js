@@ -1,3 +1,12 @@
+require('dotenv').config();
+const HF_TOKEN = process.env.HUGGINGFACE_API_TOKEN;
+global.HF_TOKEN = HF_TOKEN;
+
+
+console.log("HF token loaded:", HF_TOKEN ? "✅ Loaded" : "❌ Missing");
+
+
+
 'use strict';
 var __createBinding =
   (this && this.__createBinding) ||

@@ -104,7 +104,7 @@
   },
   "devDependencies": {
     "@types/jest": "^29.0.0",
-    "@types/node": "^18.0.0",
+    "@types/node": "^18.19.130",
     "@types/vscode": "^1.82.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
@@ -115,14 +115,26 @@
     "jest": "^29.0.0",
     "prettier": "^3.0.0",
     "ts-jest": "^29.0.0",
-    "ts-node": "^10.9.0",
-    "typescript": "^5.0.0"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/mohamedwaleedelshemy/Thesis.git"
+    "url": "git+https://github.com/mohamedwaleedelshemy/Thesis.git"
   },
   "dependencies": {
+    "axios": "^1.12.2",
     "dotenv": "^17.2.3"
-  }
+  },
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mohamedwaleedelshemy/Thesis/issues"
+  },
+  "homepage": "https://github.com/mohamedwaleedelshemy/Thesis#readme"
 }
