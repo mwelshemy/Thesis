@@ -1,0 +1,34 @@
+{
+  "name": "mock-ui",
+  "displayName": "Mock UI: AI Code Assistant",
+  "description": "Mock VS Code AI extension UI like GitHub Copilot",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "activationEvents": [
+    "onCommand:mockui.showPanel",
+    "onView:mockuiView"
+  ],
+  "main": "extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "mockui.showPanel",
+        "title": "Show Mock UI"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "mockuiView",
+          "name": "MOCK UI: AI CODE ASSISTANT"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {}
+}
