@@ -6,15 +6,11 @@
   "engines": {
     "vscode": "^1.80.0"
   },
-  "activationEvents": [
-    "onCommand:mockui.showPanel",
-    "onView:mockuiView"
-  ],
   "main": "extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "mockui.showPanel",
+        "command": "mockui.openChat",
         "title": "Show Mock UI"
       }
     ],
@@ -22,13 +18,20 @@
       "explorer": [
         {
           "id": "mockuiView",
-          "name": "MOCK UI: AI CODE ASSISTANT"
+          "name": "MOCK UI: AI CODE ASSISTANT",
+          "icon": "$(robot)"
         }
       ]
     }
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
   },
-  "dependencies": {}
+  "devDependencies": {
+    "@types/vscode": "^1.105.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
 }
