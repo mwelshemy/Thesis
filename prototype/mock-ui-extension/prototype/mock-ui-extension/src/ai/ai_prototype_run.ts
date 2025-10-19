@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import 'dotenv/config';
 import { callAI, callAIMock } from './callAI';
 
@@ -45,22 +44,3 @@ async function testAI() {
 
 // Run the test
 testAI().catch(console.error);
-=======
-import callAI from "./callAI";
-
-async function testAI() {
-  console.log("🤖 Thinking...");
-
-  try {
-    const prompt = process.argv.slice(2).join(" ") || "Summarize this text about AI.";
-    console.log(`\n🚀 Sending AI request...\n`);
-
-    const response = await callAI(prompt);
-    console.log(`\n💬 AI Response:\n${response}\n`);
-  } catch (err: any) {
-    console.error("❌ Error:", err.message);
-  }
-}
-
-testAI();
->>>>>>> feature/vscode-extension

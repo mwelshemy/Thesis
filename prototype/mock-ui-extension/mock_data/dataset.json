@@ -1,0 +1,5 @@
+[
+  { "id": 1, "filename": "sum.js", "content": "function sum(a, b) { return a + b; }" },
+  { "id": 2, "filename": "max.py", "content": "def max_value(x, y): return x if x > y else y" },
+  { "id": 3, "filename": "reverse.java", "content": "String reverse(String s) { return new StringBuilder(s).reverse().toString(); }" }
+]

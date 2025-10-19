@@ -1,39 +1,43 @@
-// ai-wrapper.js
+// ai-wrapper.js — bridge used by extension.js
+
 const path = require("path");
-const { spawn } = require("child_process");
+const { spawnSync } = require("child_process");
+require("dotenv").config();
 
+/**
+ * Run the TypeScript test runner that calls callAI.
+ * We run ts-node to call the already-tested TS function and capture stdout.
+ * This keeps extension code simple and reuses existing TS logic.
+ */
 function runCallAI(prompt) {
-    return new Promise((resolve, reject) => {
-        const scriptPath = path.join(__dirname, "src/ai/ai_prototype_run.ts");
+    const tsFile = path.join(__dirname, "src", "ai", "ai_prototype_run.ts");
 
-        const process = spawn("npx", ["ts-node", scriptPath, prompt], {
-            cwd: path.join(__dirname, "../../"), // root of the project
-            shell: true,
-        });
-
-        let output = "";
-        let error = "";
-
-        process.stdout.on("data", (data) => {
-            output += data.toString();
-        });
-
-        process.stderr.on("data", (data) => {
-            error += data.toString();
-        });
-
-        process.on("close", (code) => {
-            if (code !== 0) {
-                reject(new Error(`AI process exited with code ${code}: ${error}`));
-            } else {
-                resolve(output.trim());
-            }
-        });
+    // Run ts-node to call the script and capture the output.
+    // We pass the prompt as a single argument.
+    const result = spawnSync("npx", ["ts-node", tsFile, prompt], {
+        encoding: "utf-8",
+        shell: true,
     });
+
+    if (result.error) {
+        console.error("[AI_WRAPPER] spawn error:", result.error);
+        return `ERROR: AI wrapper failed: ${result.error.message || result.error}`;
+    }
+
+    // Prefer stdout (the script prints the AI response to console)
+    const out = (result.stdout || "").trim();
+    const err = (result.stderr || "").trim();
+
+    // If stderr contains info, include it for debugging
+    if (err && !out) return `ERROR (stderr): ${err}`;
+
+    if (!out) return "(No response from AI)";
+
+    return out;
 }
 
 function log(msg) {
-    console.log(`[AI Bridge] ${msg}`);
+    console.log(`[AI_WRAPPER] ${msg}`);
 }
 
 module.exports = { runCallAI, log };

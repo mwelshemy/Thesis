@@ -3,8 +3,7 @@
  * Now with actual AI and Search component integration
  */
 
-import { callAI } from '../callAI';
-import callAIMock from "../callAI";
+import { callAI, callAIMock } from '../callAI';
 import { searchIndex, buildSearchIndex, FileIndexEntry } from '../../search';
 import { buildEnhancedPrompt, buildSimpleContextPrompt } from './context-builder';
 

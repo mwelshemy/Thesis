@@ -1,13 +1,32 @@
 {
   "compilerOptions": {
-    "target": "es2019",
-    "lib": ["es2019", "DOM"],
+<<<<<<< HEAD
     "module": "commonjs",
-    "strict": true,
+    "target": "ES2020",
     "outDir": "out",
+    "lib": ["ES2020", "DOM"],
+    "sourceMap": true,
     "rootDir": "src",
+    "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "removeComments": true
   },
-  "include": ["src"]
+  "include": ["src/**/*", "out/src/ai"],
+  "exclude": ["node_modules", ".vscode-test", "out"]
+=======
+    "target": "es2020",
+    "module": "commonjs",
+    "outDir": "./out",
+    "rootDir": "./src",
+    "esModuleInterop": true,
+    "strict": true,
+    "types": ["node", "vscode"]
+  },
+  "include": ["src"],
+  "exclude": ["node_modules/@types/jest", "node_modules/@types/mocha"]
+>>>>>>> feature/vscode-extension
 }
