@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 /**
  * Calls Hugging Face AI API with the given prompt.
  * Uses Node.js 18+ built-in fetch.
@@ -59,61 +58,3 @@ export async function callAI(
 export async function callAIMock(prompt: string): Promise<string> {
   return `MOCK RESPONSE: This is a mock AI response for: "${prompt.substring(0, 100)}..."\n\nIn production, this would call the actual Hugging Face API.`;
 }
-=======
-import fetch from "node-fetch";
-import * as dotenv from "dotenv";
-import path from "path";
-const __dirname = path.resolve();
-
-dotenv.config({ path: path.resolve(__dirname, "../../.env") });
-
-/**
- * Calls the Hugging Face inference API using the model defined in .env
- * Returns the AI's response text (summary or generated text)
- */
-export async function callAI(prompt: string): Promise<string> {
-  const apiKey = process.env.HUGGINGFACE_API_TOKEN;
-  const model = process.env.AI_MODEL || "facebook/bart-large-cnn";
-
-  if (!apiKey) {
-    throw new Error("❌ Missing HUGGINGFACE_API_TOKEN in .env file.");
-  }
-
-  console.log(`🚀 Calling Hugging Face model: ${model}`);
-
-  const body = JSON.stringify({
-    inputs: prompt,
-  });
-
-  const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body,
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} - ${response.statusText}`);
-  }
-
-  const data: any = await response.json(); // ✅ cast to any to fix TS18046
-
-  // 🧠 Handle both summary_text and generated_text formats
-  let text = "";
-  if (Array.isArray(data) && data.length > 0) {
-    text = data[0].summary_text || data[0].generated_text || JSON.stringify(data[0]);
-  } else if ((data as any).generated_text) {
-    text = (data as any).generated_text;
-  } else {
-    text = JSON.stringify(data);
-  }
-
-  console.log("✅ AI Response:", text);
-  return text;
-}
-
-// ✅ default export for easy import
-export default callAI;
->>>>>>> feature/vscode-extension

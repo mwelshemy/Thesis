@@ -3,9 +3,8 @@
  * Now with actual AI and Search component integration
  */
 
-import { callAI } from '../callAI';
-import callAIMock from "../callAI";
-import { searchIndex, buildSearchIndex, FileIndexEntry } from '../../search';
+import { callAI, callAIMock } from '../ai/callAI';
+import { searchIndex, buildSearchIndex, FileIndexEntry } from '../search';
 import { buildEnhancedPrompt, buildSimpleContextPrompt } from './context-builder';
 
 export interface WorkflowResult {
@@ -42,7 +41,7 @@ export async function smartCodeAnalysis(
     // Step 2: Search for relevant context
     const searchQuery = generateSearchQuery(request.selectedCode, request.userQuery);
     console.log(`🔍 Searching for: "${searchQuery}"`);
-
+    
     const searchResults = searchIndex(searchQuery, request.maxSearchResults || 10);
     console.log(`📁 Found ${searchResults.length} relevant files`);
 
@@ -58,7 +57,7 @@ export async function smartCodeAnalysis(
       console.log(`📝 Built enhanced prompt with ${contextUsed.length} context files`);
     } else {
       enhancedPrompt = buildSimpleContextPrompt(basePrompt, request.selectedCode, searchResults);
-      contextUsed = searchResults.slice(0, 3).map((r: any) => r.fileName);
+      contextUsed = searchResults.slice(0, 3).map((r) => r.fileName);
       console.log('📝 Using simple prompt format');
     }
 
@@ -67,9 +66,9 @@ export async function smartCodeAnalysis(
     let aiResponse: string;
 
     // Use real AI if token available, otherwise use mock with warning
-    const hasAIToken = process.env.HUGGINGFACE_API_TOKEN &&
-      !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here');
-
+    const hasAIToken = process.env.HUGGINGFACE_API_TOKEN && 
+                       !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here');
+    
     if (hasAIToken) {
       console.log('🔐 Using real Hugging Face API');
       aiResponse = await callAI(enhancedPrompt);
@@ -143,7 +142,7 @@ function generateSearchQuery(selectedCode: string, userQuery?: string): string {
 
   // Filter out empty terms and take top 3
   const validTerms = Array.from(terms).filter(term => term && term.length > 2).slice(0, 3);
-
+  
   if (validTerms.length > 0) {
     return validTerms.join(' ');
   }
@@ -152,7 +151,7 @@ function generateSearchQuery(selectedCode: string, userQuery?: string): string {
   if (selectedCode.includes('function')) return 'function';
   if (selectedCode.includes('class')) return 'class';
   if (selectedCode.includes('interface')) return 'interface';
-
+  
   return 'code pattern';
 }
 
@@ -227,7 +226,7 @@ export async function analyzeSearchResults(
     // Step 2: Build analysis prompt from real search results
     const resultsSummary = searchResults
       .map(
-        (result: any, index: number) =>
+        (result, index) =>
           `--- Result ${index + 1} ---\nFile: ${result.fileName}\nLanguage: ${result.language}\nContent:\n${result.content.substring(0, 400)}...`
       )
       .join('\n\n');
@@ -244,9 +243,9 @@ Please analyze:
 
     // Step 3: Call REAL AI for analysis
     let aiResponse: string;
-    const hasAIToken = process.env.HUGGINGFACE_API_TOKEN &&
-      !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here');
-
+    const hasAIToken = process.env.HUGGINGFACE_API_TOKEN && 
+                       !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here');
+    
     if (hasAIToken) {
       aiResponse = await callAI(analysisPrompt);
     } else {
@@ -258,7 +257,7 @@ Please analyze:
     return {
       success: true,
       response: aiResponse,
-      contextUsed: searchResults.map((r: any) => r.fileName),
+      contextUsed: searchResults.map((r) => r.fileName),
       searchResultsCount: searchResults.length,
       workflowTime,
     };
@@ -283,31 +282,31 @@ export async function performanceTest(
   testCode: string = 'function test() { return "test"; }'
 ): Promise<WorkflowResult> {
   const startTime = Date.now();
-
+  
   try {
     console.log('⏱️ Running performance test...');
-
+    
     // Test search performance
     const searchStart = Date.now();
     await buildSearchIndex();
     const searchResults = searchIndex('function', 5);
     const searchTime = Date.now() - searchStart;
-
+    
     // Test AI performance
     const aiStart = Date.now();
-    const hasAIToken = process.env.HUGGINGFACE_API_TOKEN &&
-      !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here');
+    const hasAIToken = process.env.HUGGINGFACE_API_TOKEN && 
+                       !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here');
     let aiResponse: string;
-
+    
     if (hasAIToken) {
       aiResponse = await callAI('Quick test: ' + testCode);
     } else {
       aiResponse = await callAIMock('Quick test: ' + testCode);
     }
     const aiTime = Date.now() - aiStart;
-
+    
     const totalTime = Date.now() - startTime;
-
+    
     const performanceReport = `Performance Test Results:
 ⏱️ Total Time: ${totalTime}ms
 🔍 Search Time: ${searchTime}ms (${searchResults.length} files)
@@ -325,7 +324,7 @@ ${hasAIToken ? '✅ Using real AI API' : '🎭 Using mock AI (set HUGGINGFACE_AP
     };
   } catch (error: any) {
     const workflowTime = Date.now() - startTime;
-
+    
     return {
       success: false,
       response: `Performance test failed: ${error.message}`,
