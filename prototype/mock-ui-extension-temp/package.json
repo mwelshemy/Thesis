@@ -1,0 +1,30 @@
+{
+  "name": "mock-ui",
+  "displayName": "Mock UI",
+  "description": "Mock AI Assistant Extension",
+  "version": "0.0.1",
+  "publisher": "your-name",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "activationEvents": [
+    "onCommand:mockui.openPanel"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "mockui.openPanel",
+        "title": "Open Mock AI Assistant"
+      }
+    ]
+  },
+  "icon": "media/robot.png",
+  "scripts": {
+    "compile": "tsc -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.3.3"
+  }
+}
