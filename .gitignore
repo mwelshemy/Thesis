@@ -75,3 +75,10 @@ pids
 *.pid.lock
 coverage/
 .eslintcache
+
+
+node_modules/
+.vscode/
+dist/
+out/
+*.log
