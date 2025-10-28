@@ -105,6 +105,7 @@
   "devDependencies": {
     "@types/jest": "^29.0.0",
     "@types/node": "^18.19.130",
+    "@types/node-fetch": "^2.6.13",
     "@types/vscode": "^1.82.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
@@ -123,8 +124,10 @@
     "url": "git+https://github.com/mohamedwaleedelshemy/Thesis.git"
   },
   "dependencies": {
+    "@huggingface/inference": "^4.11.3",
     "axios": "^1.12.2",
-    "dotenv": "^17.2.3"
+    "dotenv": "^17.2.3",
+    "node-fetch": "^2.7.0"
   },
   "directories": {
     "doc": "docs",
