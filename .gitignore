@@ -1,84 +1,20 @@
-# Dependencies
+# Node.js dependencies
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 
-# Build outputs
-out/
-dist/
-*.tsbuildinfo
+# Compiled JavaScript (in-source)
+src/**/*.js
+src/**/*.js.map
 
-# Environment variables
-.env
-.env.local
-.env.production
+# Python cache and environments
+__pycache__/
+*.pyc
+venv/
+env/
+*.env
 
-# IDE and OS files
+# Hugging Face models (DO NOT UPLOAD)
+# This is the cache folder path from your logs
+C:/Users/moham/.cache/huggingface/hub/
+
+# VS Code user settings
 .vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-logs/
-
-# Temporary files
-*.tmp
-*.temp
-
-# VS Code Test
-.vscode-test/
-
-# Extension packaging
-*.vsix
-
-# Runtime data
-pids
-*.pid
-*.seed
-*.pid.lock
-
-# Coverage directory used by tools like istanbul
-coverage/
-
-# ESLint cache
-.eslintcache
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-out/
-dist/
-*.tsbuildinfo
-.env
-.env.local
-.env.production
-.vscode/
-.idea/
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
-*.log
-logs/
-*.tmp
-*.temp
-.vscode-test/
-*.vsix
-pids
-*.pid
-*.seed
-*.pid.lock
-coverage/
-.eslintcache
-
-
-node_modules/
-.vscode/
-dist/
-out/
-*.log
