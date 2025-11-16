@@ -128,7 +128,7 @@
     "@types/jest": "^29.0.0",
     "@types/node": "^18.19.130",
     "@types/node-fetch": "^2.6.13",
-    "@types/vscode": "^1.82.0",
+    "@types/vscode": "^1.106.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-cli": "^0.0.4",

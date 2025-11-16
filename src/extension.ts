@@ -84,19 +84,17 @@ export async function handleAskAICommand(payload?: {
 
     await runWithProgress('Ask AI: explaining code...', async (progress) => {
       progress.report({ message: 'Calling AI...' });
-      const prompt = `Please explain this code:\n\n${safeCode.substring(
-        0,
-        2000
-      )}`;
-      let response: string;
-      if (
-        process.env.HUGGINGFACE_API_TOKEN &&
-        !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here')
-      ) {
-        response = await callAI(prompt);
-      } else {
-        response = await callAIMock(prompt);
-      }
+
+      const prompt = `TASK: Explain the following code.
+Code:
+${safeCode.substring(0, 2000)}
+
+Detailed explanation of the code above:
+"""
+`;
+      
+      let response: string = await callAI(prompt);
+
       postToSidebar('Ask AI — Explanation', response);
       await vscode.window.showInformationMessage(
         'Ask AI: result posted to sidebar.'
@@ -137,15 +135,16 @@ export async function handleSummarizeFileCommand(payload?: {
 
     await runWithProgress(`Summarizing ${safePath}...`, async (progress) => {
       progress.report({ message: 'Calling AI...' });
-      const prompt = `Summarize this file and list main functions/classes:\n\n${content.substring(
-        0,
-        4000
-      )}`;
-      const response =
-        process.env.HUGGINGFACE_API_TOKEN &&
-        !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here')
-          ? await callAI(prompt)
-          : await callAIMock(prompt);
+
+const prompt = `TASK: Summarize the following file's contents, listing main functions, classes, and its purpose.
+CODE:
+${content.substring(0, 4000)}
+
+SUMMARY:
+`;
+
+      const response = await callAI(prompt);
+
       postToSidebar(
         `Summarize File — ${safePath.split(/[\\/]/).pop()}`,
         response
