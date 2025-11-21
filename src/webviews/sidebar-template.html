@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${webview.cspSource}; script-src 'nonce-${nonce}';">
+    <title>VS AI - Code Assistant</title>
+    <style>
+        :root {
+            --container-padding: 12px;
+            --border-radius: 4px;
+            --border-radius-lg: 6px;
+            --spacing-xs: 4px;
+            --spacing-sm: 8px;
+            --spacing-md: 12px;
+            --spacing-lg: 16px;
+            --spacing-xl: 20px;
+            --font-size-xs: 11px;
+            --font-size-sm: 12px;
+            --font-size-md: 13px;
+            --font-size-lg: 14px;
+            --font-size-xl: 16px;
+            --font-size-xxl: 18px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--vscode-font-family);
+            font-size: var(--vscode-font-size);
+            font-weight: var(--vscode-font-weight);
+            color: var(--vscode-sideBar-foreground);
+            background: var(--vscode-sideBar-background);
+            margin: 0;
+            padding: 0;
+            line-height: 1.5;
+        }
+
+        .container {
+            padding: var(--container-padding);
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: var(--spacing-lg);
+            padding-bottom: var(--spacing-md);
+            border-bottom: 1px solid var(--vscode-panel-border);
+        }
+
+        .header h1 {
+            margin: 0 0 var(--spacing-xs) 0;
+            font-size: var(--font-size-xxl);
+            font-weight: 600;
+            color: var(--vscode-button-foreground);
+        }
+
+        .subtitle {
+            font-size: var(--font-size-sm);
+            opacity: 0.8;
+        }
+
+        .nav-tabs {
+            display: flex;
+            background: var(--vscode-button-secondaryBackground);
+            border-radius: var(--border-radius-lg);
+            padding: var(--spacing-xs);
+            margin-bottom: var(--spacing-lg);
+            gap: var(--spacing-xs);
+        }
+
+        .tab {
+            flex: 1;
+            background: transparent;
+            border: none;
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-radius: var(--border-radius);
+            color: var(--vscode-button-secondaryForeground);
+            cursor: pointer;
+            font-size: var(--font-size-sm);
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--spacing-xs);
+        }
+
+        .tab:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        .tab.active {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+
+        .panel {
+            display: none;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .panel.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .file-selector-group {
+            margin-bottom: var(--spacing-md);
+        }
+
+        .file-selector-label {
+            display: block;
+            font-size: var(--font-size-sm);
+            margin-bottom: var(--spacing-xs);
+            font-weight: 500;
+            color: var(--vscode-foreground);
+        }
+
+        .file-selector {
+            width: 100%;
+            background: var(--vscode-input-background);
+            border: 1px solid var(--vscode-input-border);
+            color: var(--vscode-input-foreground);
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-radius: var(--border-radius);
+            font-size: var(--font-size-sm);
+        }
+
+        .file-selector:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder);
+        }
+
+        /* Chat Panel Styles */
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            min-height: 400px;
+        }
+
+        .chat-messages {
+            flex: 1;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: var(--border-radius-lg);
+            padding: var(--spacing-md);
+            overflow-y: auto;
+            background: var(--vscode-input-background);
+            margin-bottom: var(--spacing-md);
+            max-height: 60vh;
+        }
+
+        .message {
+            margin-bottom: var(--spacing-lg);
+            padding: var(--spacing-md);
+            border-radius: var(--border-radius-lg);
+            font-size: var(--font-size-md);
+            line-height: 1.5;
+            position: relative;
+        }
+
+        .message.user {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+            margin-left: var(--spacing-xl);
+            border-bottom-left-radius: var(--border-radius);
+        }
+
+        .message.assistant {
+            background: var(--vscode-input-background);
+            border: 1px solid var(--vscode-input-border);
+            margin-right: var(--spacing-xl);
+            border-bottom-right-radius: var(--border-radius);
+        }
+
+        .message.system {
+            background: var(--vscode-textBlockQuote-background);
+            border-left: 4px solid var(--vscode-button-background);
+            font-style: italic;
+            text-align: center;
+        }
+
+        .message-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: var(--spacing-sm);
+            font-weight: 600;
+            font-size: var(--font-size-sm);
+        }
+
+        .message-icon {
+            margin-right: var(--spacing-xs);
+            font-size: var(--font-size-lg);
+        }
+
+        .message-content {
+            line-height: 1.6;
+        }
+
+        .message-content p {
+            margin: 0 0 var(--spacing-sm) 0;
+        }
+
+        .message-content p:last-child {
+            margin-bottom: 0;
+        }
+
+        .chat-input-container {
+            border: 1px solid var(--vscode-input-border);
+            border-radius: var(--border-radius-lg);
+            background: var(--vscode-input-background);
+        }
+
+        .chat-input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            color: var(--vscode-input-foreground);
+            padding: var(--spacing-md);
+            resize: vertical;
+            min-height: 80px;
+            font-family: inherit;
+            font-size: var(--font-size-md);
+            line-height: 1.4;
+        }
+
+        .chat-input:focus {
+            outline: none;
+        }
+
+        .chat-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-top: 1px solid var(--vscode-input-border);
+        }
+
+        /* Button Styles */
+        .btn {
+            background: var(--vscode-button-secondaryBackground);
+            border: 1px solid var(--vscode-button-border);
+            color: var(--vscode-button-secondaryForeground);
+            padding: var(--spacing-xs) var(--spacing-md);
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-size: var(--font-size-sm);
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: var(--spacing-xs);
+        }
+
+        .btn:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        .btn.primary {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+
+        .btn.primary:hover {
+            background: var(--vscode-button-hoverBackground);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Tool Panels */
+        .tool-panel {
+            height: 100%;
+            overflow-y: auto;
+        }
+
+        .panel-content {
+            padding: var(--spacing-xs);
+        }
+
+        .section {
+            margin-bottom: var(--spacing-lg);
+            padding: var(--spacing-md);
+            background: var(--vscode-input-background);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: var(--border-radius-lg);
+        }
+
+        .section-header {
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .section-title {
+            font-weight: 600;
+            font-size: var(--font-size-lg);
+            margin-bottom: var(--spacing-xs);
+            color: var(--vscode-foreground);
+        }
+
+        .section-description {
+            font-size: var(--font-size-sm);
+            opacity: 0.8;
+        }
+
+        .input-group {
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .input-label {
+            display: block;
+            font-size: var(--font-size-sm);
+            margin-bottom: var(--spacing-xs);
+            font-weight: 500;
+            color: var(--vscode-foreground);
+        }
+
+        .input {
+            width: 100%;
+            background: var(--vscode-input-background);
+            border: 1px solid var(--vscode-input-border);
+            color: var(--vscode-input-foreground);
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-radius: var(--border-radius);
+            font-size: var(--font-size-sm);
+        }
+
+        .input:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder);
+        }
+
+        textarea.input {
+            resize: vertical;
+            min-height: 80px;
+            font-family: var(--vscode-font-family);
+            line-height: 1.4;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: var(--spacing-sm);
+            margin-bottom: var(--spacing-sm);
+            align-items: center;
+        }
+
+        /* Results Containers */
+        .results-container {
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: var(--border-radius-lg);
+            background: var(--vscode-input-background);
+            margin-top: var(--spacing-sm);
+        }
+
+        .results-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: var(--spacing-sm) var(--spacing-md);
+            border-bottom: 1px solid var(--vscode-panel-border);
+            background: var(--vscode-panel-background);
+        }
+
+        .results-title {
+            font-weight: 600;
+            font-size: var(--font-size-sm);
+            color: var(--vscode-foreground);
+        }
+
+        .results-actions {
+            display: flex;
+            gap: var(--spacing-xs);
+        }
+
+        .copy-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: var(--spacing-xs);
+            border-radius: var(--border-radius);
+            font-size: var(--font-size-sm);
+            color: var(--vscode-foreground);
+        }
+
+        .copy-btn:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        .results-content {
+            padding: var(--spacing-lg);
+            min-height: 100px;
+            max-height: 400px;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+
+        /* Analysis Grid */
+        .analysis-grid {
+            display: grid;
+            gap: var(--spacing-sm);
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .analysis-card {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: var(--spacing-sm);
+            background: var(--vscode-button-secondaryBackground);
+            border: 1px solid var(--vscode-button-border);
+            border-radius: var(--border-radius-lg);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .analysis-card:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+            transform: translateY(-1px);
+        }
+
+        .analysis-icon {
+            font-size: var(--font-size-xl);
+        }
+
+        .analysis-content {
+            flex: 1;
+        }
+
+        .analysis-title {
+            font-weight: 600;
+            font-size: var(--font-size-sm);
+            margin-bottom: var(--spacing-xs);
+            color: var(--vscode-foreground);
+        }
+
+        .analysis-description {
+            font-size: var(--font-size-xs);
+            opacity: 0.8;
+        }
+
+        /* File Lists */
+        .file-list {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-xs);
+        }
+
+        .file-item {
+            display: flex;
+            align-items: center;
+            gap: var(--spacing-sm);
+            padding: var(--spacing-xs);
+            background: var(--vscode-button-secondaryBackground);
+            border: 1px solid var(--vscode-button-border);
+            border-radius: var(--border-radius);
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .file-item:hover {
+            background: var(--vscode-button-hoverBackground);
+        }
+
+        .file-icon {
+            font-size: var(--font-size-lg);
+            flex-shrink: 0;
+        }
+
+        .file-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .file-name {
+            font-weight: 600;
+            font-size: var(--font-size-sm);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: var(--spacing-xs);
+            color: var(--vscode-foreground);
+        }
+
+        .file-path {
+            font-size: var(--font-size-xs);
+            opacity: 0.7;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: var(--spacing-xs);
+        }
+
+        .file-meta {
+            font-size: var(--font-size-xs);
+            opacity: 0.6;
+        }
+
+        .file-actions {
+            display: flex;
+            gap: var(--spacing-xs);
+            flex-shrink: 0;
+        }
+
+        .file-action {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: var(--spacing-xs);
+            border-radius: var(--border-radius);
+            font-size: var(--font-size-sm);
+        }
+
+        .file-action:hover {
+            background: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        /* Analysis Results */
+        .analysis-result {
+            padding: var(--spacing-md);
+            border-radius: var(--border-radius);
+            margin-bottom: var(--spacing-md);
+            font-size: var(--font-size-md);
+            line-height: 1.6;
+        }
+
+        .analysis-result.info {
+            background: var(--vscode-textBlockQuote-background);
+            border-left: 4px solid var(--vscode-button-background);
+        }
+
+        .analysis-result.warning {
+            background: var(--vscode-inputValidation-warningBackground);
+            border-left: 4px solid var(--vscode-inputValidation-warningBorder);
+        }
+
+        .analysis-result.error {
+            background: var(--vscode-inputValidation-errorBackground);
+            border-left: 4px solid var(--vscode-inputValidation-errorBorder);
+        }
+
+        /* Spinner */
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--vscode-button-background);
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .spinner.hidden {
+            display: none;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Empty States */
+        .empty-state {
+            text-align: center;
+            padding: var(--spacing-xl);
+            opacity: 0.6;
+        }
+
+        .empty-state .icon {
+            font-size: 24px;
+            margin-bottom: var(--spacing-sm);
+        }
+
+        .empty-state .message {
+            font-size: var(--font-size-sm);
+        }
+
+        /* Typography Enhancements */
+        strong {
+            font-weight: 600;
+        }
+
+        em {
+            font-style: italic;
+        }
+
+        code {
+            background: var(--vscode-textCodeBlock-background);
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: var(--vscode-editor-font-family);
+            font-size: var(--font-size-xs);
+        }
+
+        pre {
+            background: var(--vscode-textCodeBlock-background);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: var(--border-radius);
+            padding: var(--spacing-md);
+            margin: var(--spacing-sm) 0;
+            overflow-x: auto;
+            font-family: var(--vscode-editor-font-family);
+            font-size: var(--font-size-sm);
+            line-height: 1.4;
+        }
+
+        ul, ol {
+            margin: var(--spacing-sm) 0;
+            padding-left: var(--spacing-lg);
+        }
+
+        li {
+            margin-bottom: var(--spacing-xs);
+        }
+
+        h1, h2, h3, h4, h5, h6 {
+            margin: var(--spacing-md) 0 var(--spacing-sm) 0;
+            font-weight: 600;
+            color: var(--vscode-foreground);
+        }
+
+        h1 { font-size: var(--font-size-xl); }
+        h2 { font-size: var(--font-size-lg); }
+        h3 { font-size: var(--font-size-md); }
+        h4 { font-size: var(--font-size-sm); }
+        h5 { font-size: var(--font-size-xs); }
+        h6 { font-size: var(--font-size-xs); }
+
+        p {
+            margin-bottom: var(--spacing-sm);
+        }
+
+        /* Utility Classes */
+        .hidden {
+            display: none !important;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .text-left {
+            text-align: left;
+        }
+
+        .text-right {
+            text-align: right;
+        }
+
+        .mt-1 { margin-top: var(--spacing-xs); }
+        .mt-2 { margin-top: var(--spacing-sm); }
+        .mt-3 { margin-top: var(--spacing-md); }
+        .mt-4 { margin-top: var(--spacing-lg); }
+
+        .mb-1 { margin-bottom: var(--spacing-xs); }
+        .mb-2 { margin-bottom: var(--spacing-sm); }
+        .mb-3 { margin-bottom: var(--spacing-md); }
+        .mb-4 { margin-bottom: var(--spacing-lg); }
+
+        /* Responsive Design */
+        @media (max-height: 600px) {
+            .chat-messages {
+                max-height: 40vh;
+            }
+            
+            .results-content {
+                max-height: 200px;
+            }
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--vscode-scrollbarSlider-background);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--vscode-scrollbarSlider-hoverBackground);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--vscode-scrollbarSlider-activeBackground);
+        }
+        .code-block-container {
+    margin: 12px 0;
+    border: 1px solid var(--vscode-input-border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.code-header {
+    background: var(--vscode-textCodeBlock-background);
+    padding: 6px 12px;
+    font-size: 11px;
+    font-family: var(--vscode-editor-font-family);
+    border-bottom: 1px solid var(--vscode-input-border);
+    color: var(--vscode-descriptionForeground);
+}
+
+.code-block {
+    margin: 0;
+    padding: 12px;
+    background: var(--vscode-textCodeBlock-background);
+    font-family: var(--vscode-editor-font-family);
+    font-size: 12px;
+    line-height: 1.4;
+    overflow-x: auto;
+    white-space: pre;
+}
+
+.json-output {
+    background: var(--vscode-textCodeBlock-background);
+    padding: 12px;
+    border-radius: 4px;
+    font-family: var(--vscode-editor-font-family);
+    font-size: 11px;
+    line-height: 1.4;
+    overflow-x: auto;
+    margin: 0;
+}
+
+.analysis-summary {
+    background: var(--vscode-textBlockQuote-background);
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+    border-left: 4px solid var(--vscode-button-background);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+/* Enhanced message content styling */
+.message-content h1,
+.message-content h2,
+.message-content h3 {
+    margin: 16px 0 8px 0;
+    color: var(--vscode-foreground);
+}
+
+.message-content h1 {
+    font-size: 18px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    padding-bottom: 4px;
+}
+
+.message-content h2 {
+    font-size: 16px;
+}
+
+.message-content h3 {
+    font-size: 14px;
+}
+
+.message-content ul,
+.message-content ol {
+    margin: 8px 0;
+    padding-left: 20px;
+}
+
+.message-content li {
+    margin-bottom: 4px;
+}
+
+.message-content code:not(.code-block code) {
+    background: var(--vscode-textCodeBlock-background);
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: var(--vscode-editor-font-family);
+    font-size: 11px;
+}
+
+.message-content strong {
+    font-weight: 600;
+    color: var(--vscode-foreground);
+}
+
+.message-content em {
+    font-style: italic;
+}
+
+/* Semantic Search Results */
+.semantic-results {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.semantic-result-item {
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: var(--border-radius-lg);
+    padding: var(--spacing-md);
+    background: var(--vscode-input-background);
+}
+
+.semantic-result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--spacing-sm);
+}
+
+.file-info {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+    flex: 1;
+}
+
+.file-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.confidence-badge {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+}
+
+.function-info {
+    margin-bottom: var(--spacing-sm);
+    font-size: var(--font-size-sm);
+}
+
+.code-snippet-preview {
+    margin: var(--spacing-sm) 0;
+}
+
+.snippet-header {
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    margin-bottom: var(--spacing-xs);
+    opacity: 0.8;
+}
+
+.code-snippet {
+    background: var(--vscode-textCodeBlock-background);
+    border: 1px solid var(--vscode-input-border);
+    border-radius: var(--border-radius);
+    padding: var(--spacing-sm);
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--font-size-xs);
+    line-height: 1.4;
+    overflow-x: auto;
+    margin: 0;
+}
+
+.action-buttons {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-sm);
+}
+
+.code-snippet-link {
+    background: none;
+    border: none;
+    color: var(--vscode-textLink-foreground);
+    cursor: pointer;
+    text-decoration: underline;
+    font-size: inherit;
+}
+
+.code-snippet-link:hover {
+    color: var(--vscode-textLink-activeForeground);
+}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 VS AI Assistant</h1>
+            <div class="subtitle">AI-powered code analysis and assistance</div>
+        </div>
+
+        <div class="nav-tabs">
+            <button class="tab active" data-panel="chat">💬 Chat</button>
+            <button class="tab" data-panel="analyze">🔍 Analyze</button>
+            <button class="tab" data-panel="search">📋 Search</button>
+        </div>
+
+        <div class="file-selector-group">
+            <label class="file-selector-label">Target File:</label>
+            <select class="file-selector" id="file-selector">
+                <option value="">Current File (Auto-detect)</option>
+                <option value="project">Entire Project</option>
+            </select>
+        </div>
+
+        <div id="chat" class="panel active">
+            <div class="chat-container">
+                <div class="chat-messages" id="chat-messages">
+                    <div class="message system">
+                        <div class="message-header">
+                            <span class="message-icon">🤖</span>
+                            <span>VS AI Assistant</span>
+                        </div>
+                        <div class="message-content">
+                            <strong>Welcome to VS AI Assistant!</strong><br>
+                            I can help you analyze code, find issues, and answer questions about your project.
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="chat-input-container">
+                    <textarea class="chat-input" id="chat-input" placeholder="Ask about your code..."></textarea>
+                    <div class="chat-actions">
+                        <button class="btn" id="clear-chat">Clear Chat</button>
+                        <button class="btn primary" id="send-message">Send</button>
+                        <span id="chat-spinner" class="spinner hidden"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="analyze" class="panel">
+            <div class="tool-panel">
+                <div class="panel-content">
+                    <div class="section">
+                        <div class="section-header">
+                            <div class="section-title">Project Analysis</div>
+                            <div class="section-description">Analyze your entire codebase</div>
+                        </div>
+                        <div class="analysis-grid">
+                            <div class="analysis-card" data-action="analyzeProject" data-scope="full">
+                                <div class="analysis-icon">📊</div>
+                                <div class="analysis-content">
+                                    <div class="analysis-title">Full Project Analysis</div>
+                                    <div class="analysis-description">Complete analysis of architecture and quality</div>
+                                </div>
+                            </div>
+                            <div class="analysis-card" data-action="analyzeProject" data-scope="bugs">
+                                <div class="analysis-icon">🐛</div>
+                                <div class="analysis-content">
+                                    <div class="analysis-title">Bug Scan</div>
+                                    <div class="analysis-description">Find potential issues across all files</div>
+                                </div>
+                            </div>
+                            <div class="analysis-card" data-action="analyzeProject" data-scope="summary">
+                                <div class="analysis-icon">📋</div>
+                                <div class="analysis-content">
+                                    <div class="analysis-title">Project Summary</div>
+                                    <div class="analysis-description">Generate project overview</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">
+                            <div class="section-title">Code Analysis</div>
+                            <div class="section-description">Deep code inspection</div>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">Code to Analyze</label>
+                            <textarea id="analyze-code" class="input" placeholder="Paste code or select in editor..."></textarea>
+                        </div>
+                        <div class="btn-group">
+                            <button id="analyze-run" class="btn primary">Analyze Code</button>
+                            <span id="analyze-spinner" class="spinner hidden"></span>
+                        </div>
+                        <div id="analyze-results" class="results-container">
+                            <div class="results-header">
+                                <div class="results-title">Analysis Results</div>
+                                <div class="results-actions">
+                                    <button class="copy-btn" title="Copy results">📋</button>
+                                </div>
+                            </div>
+                            <div class="results-content">
+                                <div class="empty-state">
+                                    <div class="icon">🔍</div>
+                                    <div class="message">Run an analysis to see results here</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="search" class="panel">
+            <div class="tool-panel">
+                <div class="panel-content">
+                    <div class="section">
+                        <div class="section-header">
+                            <div class="section-title">Project Search</div>
+                            <div class="section-description">Search across your codebase</div>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">Search Query</label>
+                            <input id="search-query" class="input" placeholder="Function names, variables, text...">
+                        </div>
+                        <div class="btn-group">
+                            <button id="search-run" class="btn primary">Search Project</button>
+                            <button id="build-index" class="btn">Build Index</button>
+                            <span id="search-spinner" class="spinner hidden"></span>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">
+                            <div class="section-title">Search by Language</div>
+                            <div class="section-description">Filter files by programming language</div>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">Select Language</label>
+                            <select id="lang-select" class="input">
+                                <option value="">All languages</option>
+                                <option value="typescript">TypeScript</option>
+                                <option value="javascript">JavaScript</option>
+                                <option value="python">Python</option>
+                                <option value="java">Java</option>
+                                <option value="css">CSS</option>
+                                <option value="html">HTML</option>
+                                <option value="markdown">Markdown</option>
+                            </select>
+                        </div>
+                        <div class="btn-group">
+                            <button id="lang-run" class="btn primary">Search Files</button>
+                            <span id="lang-spinner" class="spinner hidden"></span>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <div class="section-header">
+                            <div class="section-title">Semantic Search</div>
+                            <div class="section-description">Find code by meaning and context</div>
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">Describe what you're looking for</label>
+                            <input id="semantic-search-query" class="input" placeholder="e.g., 'function that handles user authentication'">
+                        </div>
+                        <div class="btn-group">
+                            <button id="semantic-search-run" class="btn primary">Semantic Search</button>
+                            <span id="semantic-search-spinner" class="spinner hidden"></span>
+                        </div>
+                    </div>
+
+                    <!-- Single Results Panel for Search Tab -->
+                    <div id="search-results" class="results-container">
+                        <div class="results-header">
+                            <div class="results-title">Search Results</div>
+                            <div class="results-actions">
+                                <button class="copy-btn" title="Copy results">📋</button>
+                            </div>
+                        </div>
+                        <div class="results-content">
+                            <div class="empty-state">
+                                <div class="icon">🔍</div>
+                                <div class="message">Search results will appear here</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCRIPT_PLACEHOLDER -->
+</body>
+</html>

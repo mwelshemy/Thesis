@@ -10,21 +10,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:vsCodeAISidebar",
-    "onCommand:vs-code-ai-extension.helloWorld",
-    "onCommand:vs-code-ai-extension.askAI",
-    "onCommand:vs-code-ai-extension.summarizeFile",
-    "onCommand:vs-code-ai-extension.smartExplain",
-    "onCommand:vs-code-ai-extension.deepAnalysis",
-    "onCommand:vs-code-ai-extension.patternAnalysis",
-    "onCommand:vs-code-ai-extension.analyzeSearchResults",
-    "onCommand:vs-code-ai-extension.searchProject",
-    "onCommand:vs-code-ai-extension.buildSearchIndex",
-    "onCommand:vs-code-ai-extension.searchStats",
-    "onCommand:vs-code-ai-extension.searchByLanguage",
-    "onCommand:vs-code-ai-extension.clearSearchIndex",
-    "onCommand:vs-code-ai-extension.quickFileSearch",
-    "onCommand:vs-code-ai-extension.showSidebar"
+    "onView:vsCodeAISidebar"
   ],
   "main": "./out/extension.js",
   "contributes": {

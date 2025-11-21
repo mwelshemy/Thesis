@@ -6,12 +6,13 @@ export async function callAI(prompt: string): Promise<string> {
   try {
     const localApiUrl = 'http://localhost:8000/generate_code';
 
+    console.log('Sending request to AI server...');
+    
     const response = await fetch(localApiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      // Send the body in the format your deepseek_api.py expects
       body: JSON.stringify({ prompt: prompt }),
     });
 
@@ -20,6 +21,7 @@ export async function callAI(prompt: string): Promise<string> {
     }
 
     const data = await response.json();
+    console.log('AI server response received');
 
     // Parse the response from your deepseek_api.py
     if (data.generated_code) {
@@ -32,6 +34,7 @@ export async function callAI(prompt: string): Promise<string> {
     }
 
     // Handle any other unexpected response
+    console.warn('Unexpected response format from AI server:', data);
     return JSON.stringify(data, null, 2);
     
   } catch (error: any) {
@@ -45,7 +48,6 @@ export async function callAI(prompt: string): Promise<string> {
     return `ERROR: ${error.message || 'Unknown error occurred'}`;
   }
 }
-
 /**
  * Mock version for testing. This remains unchanged.
  */

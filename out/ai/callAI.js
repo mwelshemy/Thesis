@@ -5,6 +5,7 @@ exports.callAIMock = callAIMock;
 async function callAI(prompt) {
     try {
         const localApiUrl = 'http://localhost:8000/generate_code';
+        console.log('Sending request to AI server...');
         const response = await fetch(localApiUrl, {
             method: 'POST',
             headers: {
@@ -16,12 +17,14 @@ async function callAI(prompt) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
+        console.log('AI server response received');
         if (data.generated_code) {
             if (data.generated_code.startsWith(prompt)) {
                 return data.generated_code.substring(prompt.length).trim();
             }
             return data.generated_code;
         }
+        console.warn('Unexpected response format from AI server:', data);
         return JSON.stringify(data, null, 2);
     }
     catch (error) {
