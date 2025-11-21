@@ -1,9 +1,4 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const node_fetch_1 = __importDefault(require("node-fetch"));
 async function testAI() {
     const testPrompts = [
         "function hello() { return 'world'; }",
@@ -11,7 +6,7 @@ async function testAI() {
     ];
     for (const prompt of testPrompts) {
         try {
-            const response = await (0, node_fetch_1.default)('http://localhost:8000/generate_code', {
+            const response = await fetch('http://localhost:8000/generate_code', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ prompt })
