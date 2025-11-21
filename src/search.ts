@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { runRetrievalPipeline, initializeEmbeddings, CodeSnippet } from '../core/pipeline';
 
 export interface FileIndexEntry {
   filePath: string;
@@ -25,6 +26,11 @@ export function initializeSearch(
 
   searchOutputChannel = vscode.window.createOutputChannel('VS Search');
   context.subscriptions.push(searchOutputChannel);
+
+  // Initialize semantic search in background
+  initializeSemanticSearch().catch(error => {
+    searchOutputChannel.appendLine(`⚠️ Semantic search initialization failed: ${error.message}`);
+  });
 
   // Auto-index on workspace changes
   const watcher = vscode.workspace.createFileSystemWatcher(
@@ -67,6 +73,11 @@ export async function buildSearchIndex(): Promise<FileIndexEntry[]> {
   try {
     searchOutputChannel.appendLine('📁 Building search index...');
     searchOutputChannel.appendLine('⏱️ Scanning workspace for files...');
+
+    // Initialize semantic search in background (for thesis core feature)
+    initializeSemanticSearch().catch(error => {
+      searchOutputChannel.appendLine(`⚠️ Semantic search background init failed: ${error.message}`);
+    });
 
     // Find all supported files in workspace
     const files = await vscode.workspace.findFiles(
@@ -187,6 +198,36 @@ export function searchIndex(
   );
 
   return scoredResults;
+}
+
+/**
+ * Semantic search using embeddings (for thesis core feature)
+ */
+export async function semanticSearch(query: string, maxResults: number = 5): Promise<CodeSnippet[]> {
+  try {
+    searchOutputChannel.appendLine(`🧠 Performing semantic search for: "${query}"`);
+    const results = await runRetrievalPipeline(query, maxResults);
+    searchOutputChannel.appendLine(`✅ Semantic search found ${results.length} relevant snippets`);
+    return results;
+  } catch (error) {
+    searchOutputChannel.appendLine(`❌ Semantic search error: ${error}`);
+    console.error('Semantic search error:', error);
+    return [];
+  }
+}
+
+/**
+ * Initialize semantic search system
+ */
+export async function initializeSemanticSearch(): Promise<void> {
+  try {
+    searchOutputChannel?.appendLine('🧠 Initializing semantic search embeddings...');
+    await initializeEmbeddings();
+    searchOutputChannel?.appendLine('✅ Semantic search initialized successfully');
+  } catch (error) {
+    searchOutputChannel?.appendLine(`❌ Semantic search initialization failed: ${error}`);
+    throw error;
+  }
 }
 
 /**

@@ -1,25 +1,44 @@
-import { retrieveCandidates } from "./retrieve";
+import { retrieveCandidates, generateEmbeddingsForProject, CodeSnippet } from "./retrieve";
 import { rankCandidates } from "./rank";
 
+export { CodeSnippet };
+
 /**
- * explaination for this part w kol el integration for the future 
- * runRetrievalPipeline()
- * Runs retrieval → ranking.
- * Later, the ranked[0] will be passed to callAI().
+ * Complete retrieval pipeline for semantic code search
  */
-export function runRetrievalPipeline(query: string) {
-  const retrieved = retrieveCandidates(query);
-  const ranked = rankCandidates(retrieved);
+export async function runRetrievalPipeline(query: string, maxResults: number = 5): Promise<CodeSnippet[]> {
+  try {
+    console.log(`🔍 Running semantic search for: "${query}"`);
+    
+    // Ensure embeddings are generated
+    const retrieved = await retrieveCandidates(query, maxResults * 2);
+    
+    if (retrieved.length === 0) {
+      console.warn('No candidates retrieved');
+      return [];
+    }
+    
+    const ranked = rankCandidates(retrieved, query);
+    const topResults = ranked.slice(0, maxResults);
 
-  console.log("Top candidates:");
-  ranked.forEach((r, i) =>
-    console.log(`${i + 1}. ${r.filename} (score: ${r.relevance})`)
-  );
+    console.log("✅ Top semantic matches:");
+    topResults.forEach((r, i) => {
+      console.log(`${i + 1}. ${r.filename} (line ${r.lineNumber}) - score: ${r.relevance?.toFixed(3)}`);
+      console.log(`   Content: ${r.content.substring(0, 100)}...`);
+    });
 
-  //Nadia put your integration here
-  console.log("\nNext step: send ranked[0].content to callAI(prompt)");
+    return topResults;
+  } catch (error) {
+    console.error('Retrieval pipeline error:', error);
+    return [];
+  }
+}
 
-  //just a test
-  runRetrievalPipeline("reverse string");
-
+/**
+ * Initialize the embedding system
+ */
+export async function initializeEmbeddings(): Promise<void> {
+  console.log('🔄 Initializing code embeddings...');
+  await generateEmbeddingsForProject();
+  console.log('✅ Embeddings system ready');
 }
