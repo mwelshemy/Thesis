@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { callAI, callAIMock } from './ai/callAI';
+import { callAI } from './ai/callAI';
 import {
   buildSearchIndex,
   searchIndex,
@@ -8,12 +8,6 @@ import {
   initializeSearch,
   searchByLanguage,
 } from './search';
-import {
-  smartCodeAnalysis,
-  deepCodeAnalysis,
-  patternAnalysis,
-  analyzeSearchResults,
-} from './integration/workflow-orchestrator';
 import { SidebarViewProvider } from './webviews/sidebar-view-provider';
 import { RefactorManager } from './refactoring/refactor-manager';
 
@@ -22,15 +16,17 @@ let sidebarProvider: SidebarViewProvider | undefined;
 /** Utilities */
 async function runWithProgress<T>(
   title: string,
+  // eslint-disable-next-line no-unused-vars
   task: (p: vscode.Progress<{ message?: string; increment?: number }>) => Promise<T>
 ) {
+  // Pass an explicit wrapper so the progress parameter is referenced and not reported as unused.
   return vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
       title,
       cancellable: false,
     },
-    task
+    (progress) => task(progress)
   );
 }
 
@@ -651,7 +647,8 @@ export async function handleCodeUnderstandingSearchCommand(payload?: { query?: s
             if (content.trim().length < 10) continue;
 
             // Extract meaningful code segments (functions, classes, etc.)
-            const codeSegments = extractCodeSegments(content, doc.languageId, file.fsPath);
+            // removed unused filePath param from extractCodeSegments
+            const codeSegments = extractCodeSegments(content, doc.languageId);
             
             if (codeSegments.length === 0) continue;
 
@@ -709,7 +706,7 @@ export async function handleCodeUnderstandingSearchCommand(payload?: { query?: s
 }
 
 // Helper function to extract meaningful code segments from files
-function extractCodeSegments(content: string, language: string, filePath: string): Array<{
+function extractCodeSegments(content: string, language: string): Array<{
   name: string;
   code: string;
   type: string;
@@ -1005,7 +1002,8 @@ export async function handleSemanticSearchCommand(payload?: { query?: string }):
             
             // Extract function names and relevant code snippets
             const functionNames = extractFunctionNames(content, doc.languageId);
-            const codeSnippet = extractRelevantCodeSnippet(content, query, doc.languageId);
+            // removed unused language parameter from extractRelevantCodeSnippet call
+            const codeSnippet = extractRelevantCodeSnippet(content, query);
             const lineNumber = findRelevantLineNumber(content, query);
             
             return {
@@ -1148,7 +1146,8 @@ function extractFunctionNames(content: string, language: string): string[] {
 }
 
 // Helper function to extract relevant code snippets based on query
-function extractRelevantCodeSnippet(content: string, query: string, language: string): string {
+// removed unused language parameter
+function extractRelevantCodeSnippet(content: string, query: string): string {
   try {
     const lines = content.split('\n');
     const queryTerms = query.toLowerCase().split(/\s+/);
@@ -1226,20 +1225,20 @@ export async function handleAskAICommand(payload?: { code?: string }): Promise<v
   await handleExplainCodeCommand(payload);
 }
 
-export async function handleSmartExplainCommand(payload?: { code?: string; useContext?: boolean }) {
+export async function handleSmartExplainCommand(payload?: { code?: string; useContext?: boolean }): Promise<void> {
   await handleExplainCodeCommand(payload);
 }
 
-export async function handleDeepAnalysisCommand(payload?: { code?: string }) {
+export async function handleDeepAnalysisCommand(payload?: { code?: string }): Promise<void> {
   await handleFindBugsCommand(payload);
 }
 
-export async function handlePatternAnalysisCommand(payload?: { pattern?: string }) {
+export async function handlePatternAnalysisCommand() {
   // Implement pattern analysis or redirect to chat
   postToSidebar('Pattern Analysis', 'Pattern analysis is now integrated into the main chat. Try asking about specific patterns in your code.', 'patternAnalysis');
 }
 
-export async function handleAnalyzeSearchResultsCommand(payload?: { query?: string }) {
+export async function handleAnalyzeSearchResultsCommand() {
   postToSidebar('Search Analysis', 'Search analysis is now integrated into the main chat. Try asking questions about your codebase.', 'analyzeSearchResults');
 }
 

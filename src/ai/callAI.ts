@@ -223,7 +223,7 @@ export async function callAIMock(prompt: string): Promise<string> {
 /**
  * Mock embedding for testing
  */
-export async function generateEmbeddingMock(text: string): Promise<number[]> {
+export async function generateEmbeddingMock(): Promise<number[]> {
   // Return a simple mock embedding
   return Array(768).fill(0).map((_, i) => Math.sin(i * 0.1) * 0.1);
 }

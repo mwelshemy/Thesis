@@ -67,7 +67,7 @@ async function runWithProgress(title, task) {
         location: vscode.ProgressLocation.Notification,
         title,
         cancellable: false,
-    }, task);
+    }, (progress) => task(progress));
 }
 function postToSidebar(title, content, action) {
     if (sidebarProvider) {
@@ -584,7 +584,7 @@ async function handleCodeUnderstandingSearchCommand(payload) {
                         const content = doc.getText();
                         if (content.trim().length < 10)
                             continue;
-                        const codeSegments = extractCodeSegments(content, doc.languageId, file.fsPath);
+                        const codeSegments = extractCodeSegments(content, doc.languageId);
                         if (codeSegments.length === 0)
                             continue;
                         for (const segment of codeSegments.slice(0, 5)) {
@@ -632,7 +632,7 @@ async function handleCodeUnderstandingSearchCommand(payload) {
         console.error(err);
     }
 }
-function extractCodeSegments(content, language, filePath) {
+function extractCodeSegments(content, language) {
     const segments = [];
     const lines = content.split('\n');
     try {
@@ -863,7 +863,7 @@ async function handleSemanticSearchCommand(payload) {
                     const doc = await vscode.workspace.openTextDocument(result.filePath);
                     const content = doc.getText();
                     const functionNames = extractFunctionNames(content, doc.languageId);
-                    const codeSnippet = extractRelevantCodeSnippet(content, query, doc.languageId);
+                    const codeSnippet = extractRelevantCodeSnippet(content, query);
                     const lineNumber = findRelevantLineNumber(content, query);
                     return {
                         ...result,
@@ -984,7 +984,7 @@ function extractFunctionNames(content, language) {
     }
     return functionNames.slice(0, 5);
 }
-function extractRelevantCodeSnippet(content, query, language) {
+function extractRelevantCodeSnippet(content, query) {
     try {
         const lines = content.split('\n');
         const queryTerms = query.toLowerCase().split(/\s+/);
@@ -1052,10 +1052,10 @@ async function handleSmartExplainCommand(payload) {
 async function handleDeepAnalysisCommand(payload) {
     await handleFindBugsCommand(payload);
 }
-async function handlePatternAnalysisCommand(payload) {
+async function handlePatternAnalysisCommand() {
     postToSidebar('Pattern Analysis', 'Pattern analysis is now integrated into the main chat. Try asking about specific patterns in your code.', 'patternAnalysis');
 }
-async function handleAnalyzeSearchResultsCommand(payload) {
+async function handleAnalyzeSearchResultsCommand() {
     postToSidebar('Search Analysis', 'Search analysis is now integrated into the main chat. Try asking questions about your codebase.', 'analyzeSearchResults');
 }
 async function handleSearchProjectCommand(payload) {

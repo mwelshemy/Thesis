@@ -218,7 +218,7 @@ async function checkAIHealth() {
 async function callAIMock(prompt) {
     return `MOCK RESPONSE: This is a mock AI response for: "${prompt.substring(0, 100)}..."\n\nIn production, this would call the actual Hugging Face API.`;
 }
-async function generateEmbeddingMock(text) {
+async function generateEmbeddingMock() {
     return Array(768).fill(0).map((_, i) => Math.sin(i * 0.1) * 0.1);
 }
 //# sourceMappingURL=callAI.js.map
