@@ -4,7 +4,7 @@
 
 export class SortingAlgorithms {
   /**
-   * Bubble Sort - O(ný)
+   * Bubble Sort - O(nï¿½)
    */
   public static bubbleSort<T>(arr: T[], compare: (a: T, b: T) => number = (a, b) => a < b ? -1 : a > b ? 1 : 0): T[] {
     const array = [...arr];
@@ -27,7 +27,7 @@ export class SortingAlgorithms {
   }
 
   /**
-   * Quick Sort - O(n log n) average, O(ný) worst case
+   * Quick Sort - O(n log n) average, O(nï¿½) worst case
    */
   public static quickSort<T>(arr: T[], compare: (a: T, b: T) => number = (a, b) => a < b ? -1 : a > b ? 1 : 0): T[] {
     if (arr.length <= 1) return arr;
@@ -131,7 +131,7 @@ export class SortingAlgorithms {
   }
 
   /**
-   * Insertion Sort - O(ný) but efficient for small arrays
+   * Insertion Sort - O(nï¿½) but efficient for small arrays
    */
   public static insertionSort<T>(arr: T[], compare: (a: T, b: T) => number = (a, b) => a < b ? -1 : a > b ? 1 : 0): T[] {
     const array = [...arr];
@@ -152,7 +152,7 @@ export class SortingAlgorithms {
   }
 
   /**
-   * Selection Sort - O(ný)
+   * Selection Sort - O(nï¿½)
    */
   public static selectionSort<T>(arr: T[], compare: (a: T, b: T) => number = (a, b) => a < b ? -1 : a > b ? 1 : 0): T[] {
     const array = [...arr];
@@ -163,7 +163,7 @@ export class SortingAlgorithms {
       for (let j = i + 1; j < array.length; j++) {
         if (compare(array[j], array[minIndex]) < 0) {
           minIndex = j;
-        }
+        }  
       }
 
       if (minIndex !== i) {
