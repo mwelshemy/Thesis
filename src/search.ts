@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { runRetrievalPipeline, initializeEmbeddings, CodeSnippet } from '../core/pipeline';
+import { generateEmbeddingsForProject } from '../core/retrieve';
 
 export interface FileIndexEntry {
   filePath: string;
@@ -205,12 +206,23 @@ export function searchIndex(
  */
 export async function semanticSearch(query: string, maxResults: number = 5): Promise<CodeSnippet[]> {
   try {
-    searchOutputChannel.appendLine(`🧠 Performing semantic search for: "${query}"`);
+    searchOutputChannel.appendLine(`Performing semantic search for: "${query}"`);
     const results = await runRetrievalPipeline(query, maxResults);
-    searchOutputChannel.appendLine(`✅ Semantic search found ${results.length} relevant snippets`);
+    
+    // ADD DEBUG INFO
+    if (results.length === 0) {
+      searchOutputChannel.appendLine('No semantic results found - vector store may be empty');
+    } else {
+      searchOutputChannel.appendLine(`Semantic search found ${results.length} relevant snippets`);
+      // Log top result for verification
+      if (results[0]) {
+        searchOutputChannel.appendLine(`Top result: ${results[0].filename} (line ${results[0].lineNumber}) - score: ${results[0].relevance}`);
+      }
+    }
+    
     return results;
   } catch (error) {
-    searchOutputChannel.appendLine(`❌ Semantic search error: ${error}`);
+    searchOutputChannel.appendLine(`Semantic search error: ${error}`);
     console.error('Semantic search error:', error);
     return [];
   }
@@ -221,11 +233,15 @@ export async function semanticSearch(query: string, maxResults: number = 5): Pro
  */
 export async function initializeSemanticSearch(): Promise<void> {
   try {
-    searchOutputChannel?.appendLine('🧠 Initializing semantic search embeddings...');
-    await initializeEmbeddings();
-    searchOutputChannel?.appendLine('✅ Semantic search initialized successfully');
+    searchOutputChannel?.appendLine('Initializing semantic search embeddings...');
+    
+    // FIX: Actually generate embeddings
+    const embeddings = await generateEmbeddingsForProject();
+    searchOutputChannel?.appendLine(`Generated ${embeddings.length} code embeddings from project files`);
+    
+    searchOutputChannel?.appendLine('Semantic search initialized successfully');
   } catch (error) {
-    searchOutputChannel?.appendLine(`❌ Semantic search initialization failed: ${error}`);
+    searchOutputChannel?.appendLine(`Semantic search initialization failed: ${error}`);
     throw error;
   }
 }

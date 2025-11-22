@@ -2,7 +2,7 @@ import { retrieveCandidates, generateEmbeddingsForProject, CodeSnippet } from ".
 import { rankCandidates } from "./rank";
 
 export { CodeSnippet };
-
+export { generateEmbeddingsForProject } from "./retrieve";
 /**
  * Complete retrieval pipeline for semantic code search
  */
