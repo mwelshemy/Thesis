@@ -2,7 +2,7 @@
 node_modules/
 
 # Compiled JavaScript (in-source)
-src/**/*.js
+
 src/**/*.js.map
 
 # Python cache and environments
