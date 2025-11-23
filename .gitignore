@@ -13,5 +13,3 @@ env/
 # This is the cache folder path from your logs
 C:/Users/moham/.cache/huggingface/hub/
 
-# VS Code user settings
-.vscode/
