@@ -30,12 +30,11 @@ async function runWithProgress<T>(
   );
 }
 
-function postToSidebar(title: string, content: string | object, action?: string) {
-  if (sidebarProvider) {
-    sidebarProvider.showAIAnalysis(title, content, action);
-  }
+function postToSidebar(title: string, content: any, action: string) {
+    if (sidebarProvider) {
+        sidebarProvider.showAIAnalysis(title, content, action);
+    }
 }
-
 /** Utility functions for file access */
 async function getAllProjectFiles(): Promise<vscode.Uri[]> {
   try {

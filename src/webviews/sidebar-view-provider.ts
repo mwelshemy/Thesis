@@ -80,7 +80,11 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.options = {
       enableScripts: true,
-      localResourceRoots: [this._extensionUri],
+      localResourceRoots: [
+        this._extensionUri,
+        vscode.Uri.joinPath(this._extensionUri, 'resources'),
+        vscode.Uri.joinPath(this._extensionUri, 'src', 'webviews')
+      ],
     };
 
     webviewView.webview.html = this._getHtml(webviewView.webview);
@@ -294,7 +298,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
         return;
     }
     this._post(msg);
-}
+  }
 
   private _post(message: any) {
     try {
@@ -414,25 +418,46 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
     const scriptPath = path.join(this._extensionUri.fsPath, 'src', 'webviews', 'sidebar-script.js');
     
     try {
-        let htmlContent = fs.readFileSync(htmlPath, 'utf8');
-        let scriptContent = fs.readFileSync(scriptPath, 'utf8');
+      let htmlContent = fs.readFileSync(htmlPath, 'utf8');
+      let scriptContent = fs.readFileSync(scriptPath, 'utf8');
+      
+      // Replace placeholders with actual values
+      htmlContent = htmlContent.replace(/\${nonce}/g, nonce);
+      htmlContent = htmlContent.replace(/\${webview\.cspSource}/g, webview.cspSource);
+      
+      // Convert resource paths to webview URIs
+      const resourceFiles = [
+        'codesense-logo.png', 'chat-icon.png', 'analyze-icon.png', 'search-icon.png',
+        'assistant-icon.png', 'clear-icon.png', 'send-icon.png', 'analysis-icon.png',
+        'bug-icon.png', 'summary-icon.png', 'copy-icon.png', 'search-empty-icon.png',
+        'build-icon.png', 'language-icon.png', 'semantic-search-icon.png'
+      ];
+
+      resourceFiles.forEach(filename => {
+        const resourcePath = vscode.Uri.joinPath(this._extensionUri, 'resources', filename);
+        const webviewUri = webview.asWebviewUri(resourcePath);
         
-        // Replace placeholders with actual values
-        htmlContent = htmlContent.replace(/\${nonce}/g, nonce);
-        htmlContent = htmlContent.replace(/\${webview\.cspSource}/g, webview.cspSource);
-        
-        // Inject the JavaScript content directly into the HTML
-        htmlContent = htmlContent.replace(
-            '<!-- SCRIPT_PLACEHOLDER -->', 
-            `<script nonce="${nonce}">${scriptContent}</script>`
-        );
-        
-        return htmlContent;
+        // Replace all occurrences of this resource path in the HTML
+        const placeholder = `\${webview.cspSource}../../resources/${filename}`;
+        htmlContent = htmlContent.replace(new RegExp(this._escapeRegExp(placeholder), 'g'), webviewUri.toString());
+      });
+
+      // Inject the JavaScript content directly into the HTML
+      htmlContent = htmlContent.replace(
+        '<!-- SCRIPT_PLACEHOLDER -->', 
+        `<script nonce="${nonce}">${scriptContent}</script>`
+      );
+      
+      return htmlContent;
     } catch (error) {
-        console.error('Error loading HTML template:', error);
-        // Fallback to a simple HTML if file reading fails
-        return this._getFallbackHtml(webview);
+      console.error('Error loading HTML template:', error);
+      // Fallback to a simple HTML if file reading fails
+      return this._getFallbackHtml(webview);
     }
+  }
+
+  private _escapeRegExp(string: string): string {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   private _getFallbackHtml(webview: vscode.Webview): string {

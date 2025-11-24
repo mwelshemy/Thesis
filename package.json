@@ -1,14 +1,30 @@
 {
-  "name": "vs-code-ai-extension",
-  "displayName": "VS Code AI Extension",
-  "description": "AI-powered code understanding and navigation (sidebar-driven)",
-  "version": "0.0.1",
+  "publisher": "CodeSense-Tools",
+  "name": "vs-code-ai-assistant",
+  "displayName": "VS Code AI Assistant",
+  "description": "AI-powered code understanding, analysis, and navigation with intelligent search capabilities",
+  "version": "1.0.0",
   "engines": {
     "vscode": "^1.82.0"
   },
   "categories": [
+    "Programming Languages",
+    "AI",
     "Other"
   ],
+  "keywords": [
+    "ai",
+    "code-analysis",
+    "search",
+    "productivity",
+    "intellisense",
+    "documentation"
+  ],
+  "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "activationEvents": [
     "onView:vsCodeAISidebar"
   ],
@@ -27,125 +43,90 @@
       "vsCodeAI": [
         {
           "id": "vsCodeAISidebar",
-          "name": "VS AI",
+          "name": "AI Assistant",
           "type": "webview"
         }
       ]
     },
     "commands": [
       {
-        "command": "vs-code-ai-extension.helloWorld",
-        "title": "Hello World",
-        "category": "VS AI"
-      },
-      {
-        "command": "vs-code-ai-extension.askAI",
-        "title": "Ask AI: Explain Code",
-        "category": "VS AI"
-      },
-      {
-        "command": "vs-code-ai-extension.summarizeFile",
-        "title": "Summarize File",
-        "category": "VS AI"
-      },
-      {
-        "command": "vs-code-ai-extension.smartExplain",
-        "title": "Smart Explain: With Project Context",
-        "category": "VS AI"
-      },
-      {
-        "command": "vs-code-ai-extension.deepAnalysis",
-        "title": "Deep Analysis: Comprehensive Review",
-        "category": "VS AI"
-      },
-      {
-        "command": "vs-code-ai-extension.patternAnalysis",
-        "title": "Pattern Analysis: Find Similar Code",
-        "category": "VS AI"
-      },
-      {
-        "command": "vs-code-ai-extension.analyzeSearchResults",
-        "title": "Analyze Search Results with AI",
-        "category": "VS AI"
-      },
-      {
-        "command": "vs-code-ai-extension.searchProject",
-        "title": "Search Project",
-        "category": "VS AI"
-      },
-      {
-        "command": "vs-code-ai-extension.buildSearchIndex",
-        "title": "Build Search Index",
-        "category": "VS AI"
-      },
-      {
-        "command": "vs-code-ai-extension.searchStats",
-        "title": "Search Statistics",
-        "category": "VS AI"
-      },
-      {
-        "command": "vs-code-ai-extension.searchByLanguage",
-        "title": "Search by Language",
-        "category": "VS AI"
-      },
-      {
-        "command": "vs-code-ai-extension.clearSearchIndex",
-        "title": "Clear Search Index",
-        "category": "VS AI"
-      },
-      {
-        "command": "vs-code-ai-extension.quickFileSearch",
-        "title": "Quick File Search",
-        "category": "VS AI"
-      },
-      {
         "command": "vs-code-ai-extension.showSidebar",
-        "title": "VS AI: Show Sidebar",
+        "title": "Show AI Assistant",
+        "category": "VS AI",
+        "icon": "$(search)"
+      },
+      {
+        "command": "vs-code-ai-extension.chat",
+        "title": "AI Chat: Ask About Code",
+        "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.explainCode",
+        "title": "Explain Code",
+        "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.findBugs",
+        "title": "Find Bugs",
+        "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.analyzeProject",
+        "title": "Analyze Entire Project",
+        "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.semanticSearch",
+        "title": "Semantic Search",
         "category": "VS AI"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "VS AI Assistant",
+      "properties": {
+        "vsCodeAI.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Hugging Face API key for AI features"
+        },
+        "vsCodeAI.autoIndex": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically rebuild search index on file changes"
+        },
+        "vsCodeAI.maxSearchResults": {
+          "type": "number",
+          "default": 20,
+          "description": "Maximum number of search results to display"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p .",
-    "watch": "tsc -w -p ."
+    "watch": "tsc -watch -p .",
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
   "devDependencies": {
-    "@types/jest": "^29.0.0",
-    "@types/node": "^18.19.130",
-    "@types/node-fetch": "^2.6.13",
-    "@types/vscode": "^1.106.0",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
-    "@typescript-eslint/parser": "^6.0.0",
-    "@vscode/test-cli": "^0.0.4",
-    "@vscode/test-electron": "^2.3.4",
-    "eslint": "^8.0.0",
-    "husky": "^8.0.0",
-    "jest": "^29.0.0",
-    "prettier": "^3.0.0",
-    "ts-jest": "^29.0.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "@types/vscode": "^1.82.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.0.0",
+    "vsce": "^2.15.0"
+  },
+  "dependencies": {
+    "@huggingface/inference": "^2.6.0",
+    "axios": "^1.4.0"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mohamedwaleedelshemy/Thesis.git"
+    "url": "https://github.com/mohamedwaleedelshemy/Thesis.git"
   },
-  "dependencies": {
-    "@huggingface/inference": "^4.11.3",
-    "axios": "^1.12.2",
-    "dotenv": "^17.2.3",
-    "node-fetch": "^2.7.0"
-  },
-  "directories": {
-    "doc": "docs",
-    "test": "tests"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "bugs": {
     "url": "https://github.com/mohamedwaleedelshemy/Thesis/issues"
   },
-  "homepage": "https://github.com/mohamedwaleedelshemy/Thesis#readme"
+  "homepage": "https://github.com/mohamedwaleedelshemy/Thesis#readme",
+  "license": "AUC",
+  "author": "youssefkhaled@aucegypt.edu"
 }

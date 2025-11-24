@@ -87,7 +87,11 @@ class SidebarViewProvider {
         webviewView.show?.(true);
         webviewView.webview.options = {
             enableScripts: true,
-            localResourceRoots: [this._extensionUri],
+            localResourceRoots: [
+                this._extensionUri,
+                vscode.Uri.joinPath(this._extensionUri, 'resources'),
+                vscode.Uri.joinPath(this._extensionUri, 'src', 'webviews')
+            ],
         };
         webviewView.webview.html = this._getHtml(webviewView.webview);
         const messageDisp = webviewView.webview.onDidReceiveMessage(async (msg) => {
@@ -376,6 +380,18 @@ class SidebarViewProvider {
             let scriptContent = fs.readFileSync(scriptPath, 'utf8');
             htmlContent = htmlContent.replace(/\${nonce}/g, nonce);
             htmlContent = htmlContent.replace(/\${webview\.cspSource}/g, webview.cspSource);
+            const resourceFiles = [
+                'codesense-logo.png', 'chat-icon.png', 'analyze-icon.png', 'search-icon.png',
+                'assistant-icon.png', 'clear-icon.png', 'send-icon.png', 'analysis-icon.png',
+                'bug-icon.png', 'summary-icon.png', 'copy-icon.png', 'search-empty-icon.png',
+                'build-icon.png', 'language-icon.png', 'semantic-search-icon.png'
+            ];
+            resourceFiles.forEach(filename => {
+                const resourcePath = vscode.Uri.joinPath(this._extensionUri, 'resources', filename);
+                const webviewUri = webview.asWebviewUri(resourcePath);
+                const placeholder = `\${webview.cspSource}../../resources/${filename}`;
+                htmlContent = htmlContent.replace(new RegExp(this._escapeRegExp(placeholder), 'g'), webviewUri.toString());
+            });
             htmlContent = htmlContent.replace('<!-- SCRIPT_PLACEHOLDER -->', `<script nonce="${nonce}">${scriptContent}</script>`);
             return htmlContent;
         }
@@ -383,6 +399,9 @@ class SidebarViewProvider {
             console.error('Error loading HTML template:', error);
             return this._getFallbackHtml(webview);
         }
+    }
+    _escapeRegExp(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
     _getFallbackHtml(webview) {
         const nonce = this._getNonce();
