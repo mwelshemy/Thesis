@@ -41,16 +41,27 @@ exports.handleExplainCodeCommand = handleExplainCodeCommand;
 exports.handleSummarizeFileCommand = handleSummarizeFileCommand;
 exports.handleFindBugsCommand = handleFindBugsCommand;
 exports.handleSuggestImprovementsCommand = handleSuggestImprovementsCommand;
+exports.handleCodeUnderstandingSearchCommand = handleCodeUnderstandingSearchCommand;
+exports.handleSemanticFunctionSearchCommand = handleSemanticFunctionSearchCommand;
 exports.handleSemanticSearchCommand = handleSemanticSearchCommand;
-exports.setSidebarProvider = setSidebarProvider;
+exports.handleAskAICommand = handleAskAICommand;
+exports.handleSmartExplainCommand = handleSmartExplainCommand;
+exports.handleDeepAnalysisCommand = handleDeepAnalysisCommand;
+exports.handlePatternAnalysisCommand = handlePatternAnalysisCommand;
+exports.handleAnalyzeSearchResultsCommand = handleAnalyzeSearchResultsCommand;
+exports.handleSearchProjectCommand = handleSearchProjectCommand;
+exports.handleBuildSearchIndexCommand = handleBuildSearchIndexCommand;
+exports.handleSearchStatsCommand = handleSearchStatsCommand;
+exports.handleSearchByLanguageCommand = handleSearchByLanguageCommand;
+exports.handleClearSearchIndexCommand = handleClearSearchIndexCommand;
+exports.handleQuickFileSearchCommand = handleQuickFileSearchCommand;
 exports.activate = activate;
 exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
 const callAI_1 = require("./ai/callAI");
 const search_1 = require("./search");
-const logger_1 = require("./logger");
-const debug_search_command_1 = require("./debug/debug-search-command");
-const code_utils_1 = require("./code-utils");
+const sidebar_view_provider_1 = require("./webviews/sidebar-view-provider");
+const refactor_manager_1 = require("./refactoring/refactor-manager");
 let sidebarProvider;
 async function runWithProgress(title, task) {
     return vscode.window.withProgress({
@@ -60,86 +71,9 @@ async function runWithProgress(title, task) {
     }, (progress) => task(progress));
 }
 function postToSidebar(title, content, action) {
-    (0, logger_1.logInfo)(`📤 [SIDEBAR_POST] Posting to sidebar - Title: ${title}, Action: ${action}`);
     if (sidebarProvider) {
         sidebarProvider.showAIAnalysis(title, content, action);
     }
-    else {
-        (0, logger_1.logWarn)('❌ [SIDEBAR_POST] Sidebar provider not available');
-    }
-}
-function sleep(ms) {
-    return new Promise((res) => setTimeout(res, ms));
-}
-async function resilientCallAI(prompt, retries = 3, initialBackoffMs = 500) {
-    const overallStart = Date.now();
-    let attempt = 0;
-    let lastErr = null;
-    try {
-        const healthy = await (0, callAI_1.checkAIHealth)();
-        if (!healthy) {
-            (0, logger_1.logWarn)('🧭 [AI_HEALTH] AI server indicates not healthy. Will still attempt call.');
-        }
-        else {
-            (0, logger_1.logInfo)('🧭 [AI_HEALTH] AI health: healthy');
-        }
-    }
-    catch (e) {
-        (0, logger_1.logWarn)(`🧭 [AI_HEALTH] Health check failed: ${String(e)}`);
-    }
-    for (attempt = 1; attempt <= retries; attempt++) {
-        const attemptStart = Date.now();
-        try {
-            (0, logger_1.logDebug)(`🕵️‍♂️ [AI_CALL] Attempt ${attempt}/${retries} - sending prompt preview: ${prompt?.substring(0, 200).replace(/\n/g, ' ')}`);
-            const text = await (0, callAI_1.callAI)(prompt);
-            const attemptElapsed = Date.now() - attemptStart;
-            const overallElapsed = Date.now() - overallStart;
-            const lower = (text || '').toLowerCase();
-            const isMock = lower.startsWith('mock response') ||
-                lower.includes('note: this is a mock response') ||
-                lower.includes('mock response:') ||
-                lower.includes('mock_mode') ||
-                lower.includes('model not ready') ||
-                lower.includes('model is not ready');
-            const looksLikeError = lower.startsWith('error:') ||
-                lower.includes('connection refused') ||
-                lower.includes('request timeout') ||
-                lower.includes('stacktrace') ||
-                lower.includes('exception');
-            if (looksLikeError) {
-                throw new Error(`AI call returned error-like response: ${text?.substring?.(0, 200) ?? text}`);
-            }
-            if (isMock && attempt < retries) {
-                const backoff = initialBackoffMs * Math.pow(2, attempt - 1);
-                (0, logger_1.logWarn)(`🕵️‍♂️ [AI_CALL] Received mock response on attempt ${attempt}. Backing off ${backoff}ms and retrying.`);
-                await sleep(backoff);
-                continue;
-            }
-            (0, logger_1.logInfo)(`🕵️‍♂️ [AI_CALL] Success on attempt ${attempt} (attemptElapsed=${attemptElapsed}ms overallElapsed=${overallElapsed}ms) isMock=${isMock}`);
-            return { text: text ?? '', elapsedMs: overallElapsed, isMock, attempts: attempt };
-        }
-        catch (err) {
-            lastErr = err;
-            const errMsg = String(err || '').toLowerCase();
-            (0, logger_1.logWarn)(`🕵️‍♂️ [AI_CALL] Attempt ${attempt} failed: ${errMsg}`);
-            if (attempt < retries) {
-                const backoff = initialBackoffMs * Math.pow(2, attempt - 1);
-                (0, logger_1.logInfo)(`🕵️‍♂️ [AI_CALL] Retrying in ${backoff}ms...`);
-                await sleep(backoff);
-                continue;
-            }
-            else {
-                const overallElapsed = Date.now() - overallStart;
-                const errorText = (err && err.code === 'ECONNREFUSED')
-                    ? 'ERROR: Connection refused. Is the AI server running?'
-                    : `ERROR: ${String(err)}`;
-                (0, logger_1.logErr)(`🕵️‍♂️ [AI_CALL] All attempts failed: ${String(err)}`);
-                return { text: errorText, elapsedMs: overallElapsed, isMock: true, attempts: attempt };
-            }
-        }
-    }
-    const overallElapsed = Date.now() - overallStart;
-    return { text: `ERROR: Unknown failure after ${attempt - 1} attempts`, elapsedMs: overallElapsed, isMock: true, attempts: attempt - 1 };
 }
 async function getAllProjectFiles() {
     try {
@@ -149,11 +83,10 @@ async function getAllProjectFiles() {
         }
         const pattern = new vscode.RelativePattern(vscode.workspace.workspaceFolders[0], '**/*');
         const files = await vscode.workspace.findFiles(pattern, '**/node_modules/**');
-        (0, logger_1.logInfo)(`📁 [FILE_ACCESS] Found ${files.length} project files`);
         return files;
     }
     catch (err) {
-        (0, logger_1.logErr)(`❌ [FILE_ACCESS] Error getting project files: ${String(err)}`);
+        console.error('Error getting project files:', err);
         vscode.window.showErrorMessage('Error accessing project files.');
         return [];
     }
@@ -169,23 +102,14 @@ ${content.substring(0, 2000)}
 \`\`\`
 
 Provide a concise bug report focusing on critical issues only. If no significant issues found, return "No critical issues found."`;
-        const aiRes = await resilientCallAI(prompt);
-        if (aiRes.isMock) {
-            (0, logger_1.logWarn)(`❗ [BUG_ANALYSIS] AI returned mock/error after ${aiRes.attempts} attempts (elapsed ${aiRes.elapsedMs}ms).`);
-            const text = aiRes.text || '';
-            if (text && !text.toLowerCase().includes('no critical issues')) {
-                return `## ${filename}\n\n${text}\n\n(Note: AI response may be mock/error)`;
-            }
-            return null;
-        }
-        const response = aiRes.text;
-        if (response && !response.toLowerCase().includes('no critical issues') && !response.toLowerCase().includes('no significant issues')) {
+        const response = await (0, callAI_1.callAI)(prompt);
+        if (response && !response.includes('No critical issues') && !response.includes('no significant issues')) {
             return `## ${filename}\n\n${response}`;
         }
         return null;
     }
     catch (err) {
-        (0, logger_1.logWarn)(`❌ [BUG_ANALYSIS] Failed to analyze ${filename} for bugs: ${String(err)}`);
+        console.warn(`Failed to analyze ${filename} for bugs:`, err);
         return null;
     }
 }
@@ -213,259 +137,6 @@ function getLanguageFromExtension(ext) {
         'yaml': 'YAML'
     };
     return map[ext] || ext;
-}
-function generateIdentifierVariants(phrase) {
-    if (!phrase)
-        return [];
-    const parts = phrase.toLowerCase().split(/[\s_-]+/).filter(Boolean);
-    if (parts.length === 0)
-        return [];
-    if (parts.length === 1) {
-        const word = parts[0];
-        return [word, word + 's', word + 'ing', word + 'ed'];
-    }
-    const joined = parts.join('');
-    const snake = parts.join('_');
-    const kebab = parts.join('-');
-    const camel = parts[0] + parts.slice(1).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
-    const pascal = parts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
-    const commonVariants = [
-        phrase.toLowerCase(),
-        ...parts,
-        joined, snake, camel, pascal, kebab,
-        joined + 's', snake + 's', camel + 's',
-        'get' + pascal, 'find' + pascal, 'create' + pascal,
-        'do' + pascal, 'run' + pascal, 'execute' + pascal
-    ];
-    return Array.from(new Set(commonVariants)).filter(v => v && v.length > 1);
-}
-async function findMatchingCodeSections(query, codeSections) {
-    const matches = [];
-    try {
-        const batchSize = 8;
-        for (let i = 0; i < codeSections.length; i += batchSize) {
-            const batch = codeSections.slice(i, i + batchSize);
-            const prompt = `The user is looking for code that: "${query}"
-
-I will show you several code sections. For each one, determine if it matches what the user is looking for.
-
-Respond with a JSON array where each item has:
-- "index": the section index (0-based)
-- "relevant": true|false
-- "confidence": 0.0 to 1.0
-- "explanation": brief explanation of why it matches or doesn't match
-
-Code sections to evaluate:
-
-${batch
-                .map((section, index) => `
---- Section ${index} ---
-File: ${section.fileName}
-Type: ${section.sectionType}
-Name: ${section.sectionName}
-Language: ${section.language}
-Code:
-\`\`\`${section.language}
-${(section.code || '').substring(0, 800)}
-\`\`\`
-`)
-                .join('\n')}
-
-Respond with JSON only:
-[{"index":0,"relevant":true,"confidence":0.85,"explanation":"..."}, ...]`;
-            const aiRes = await resilientCallAI(prompt, 2, 500);
-            if (!aiRes.isMock && aiRes.text) {
-                try {
-                    const jsonMatch = aiRes.text.match(/\[[\s\S]*\]/);
-                    if (jsonMatch) {
-                        const evaluations = JSON.parse(jsonMatch[0]);
-                        evaluations.forEach((evaluation) => {
-                            if (evaluation.relevant && evaluation.confidence > 0.3) {
-                                const section = batch[evaluation.index];
-                                if (section) {
-                                    matches.push({
-                                        ...section,
-                                        confidence: Math.min(1, Number(evaluation.confidence || 0)),
-                                        explanation: evaluation.explanation || 'Matches query'
-                                    });
-                                }
-                            }
-                        });
-                    }
-                    else {
-                        const fallbackMatches = applyFallbackMatching(query, batch);
-                        matches.push(...fallbackMatches);
-                    }
-                }
-                catch (parseErr) {
-                    console.warn('❌ [MATCHING] Failed to parse AI evaluation:', parseErr);
-                    const fallbackMatches = applyFallbackMatching(query, batch);
-                    matches.push(...fallbackMatches);
-                }
-            }
-            else {
-                const fallbackMatches = applyFallbackMatching(query, batch);
-                matches.push(...fallbackMatches);
-            }
-            await sleep(200);
-        }
-        matches.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
-    }
-    catch (err) {
-        console.error('❌ [MATCHING] Error finding matching sections:', err);
-    }
-    return matches.slice(0, 12);
-}
-function applyFallbackMatching(query, batch) {
-    const matches = [];
-    const queryLower = (query || '').toLowerCase();
-    const queryTokens = queryLower.split(/\W+/).filter(token => token.length > 2);
-    batch.forEach((section) => {
-        const sectionText = ((section.sectionName || '') + ' ' + (section.code || '')).toLowerCase();
-        let score = 0;
-        for (const token of queryTokens) {
-            if (sectionText.includes(token))
-                score += 0.2;
-        }
-        if (section.sectionType === 'function' || section.sectionType === 'class') {
-            const nameLower = (section.sectionName || '').toLowerCase();
-            if (queryTokens.some(token => nameLower.includes(token)))
-                score += 0.3;
-        }
-        if ((section.code || '').length < 1000)
-            score += 0.05;
-        if (score > 0.3) {
-            matches.push({
-                ...section,
-                confidence: Math.min(0.9, score),
-                explanation: `Matches keywords from your query: "${query}"`
-            });
-        }
-    });
-    return matches;
-}
-async function directPhraseSearchInFiles(phrase, files, maxResults = 12) {
-    const variants = generateIdentifierVariants(phrase);
-    (0, logger_1.logDebug)(`🔍 [DIRECT_SEARCH] Searching for variants: ${variants.join(', ')}`);
-    const results = [];
-    const sourceExtensions = ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'php', 'rb', 'go', 'rs'];
-    const searchedFiles = new Set();
-    for (const file of files) {
-        if (results.length >= maxResults)
-            break;
-        try {
-            const ext = file.fsPath.split('.').pop() || '';
-            if (!sourceExtensions.includes(ext))
-                continue;
-            const doc = await vscode.workspace.openTextDocument(file);
-            const content = doc.getText();
-            const contentLower = content.toLowerCase();
-            searchedFiles.add(file.fsPath);
-            let bestVariant;
-            let bestScore = 0;
-            for (const v of variants) {
-                if (!v || v.length < 2)
-                    continue;
-                let score = 0;
-                const index = contentLower.indexOf(v);
-                if (index !== -1) {
-                    score = 1.0;
-                    score += Math.min(0.5, v.length / 20);
-                    const surrounding = content.substring(Math.max(0, index - 20), Math.min(content.length, index + 20));
-                    if (surrounding.includes('function') || surrounding.includes('class') || surrounding.includes('def ')) {
-                        score += 0.3;
-                    }
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestVariant = v;
-                    }
-                }
-            }
-            if (bestVariant && bestScore > 0) {
-                const foundIndex = contentLower.indexOf(bestVariant);
-                const snippet = (0, code_utils_1.extractCodeBlock)(content, foundIndex, doc.languageId) ||
-                    content.substring(Math.max(0, foundIndex - 120), Math.min(content.length, foundIndex + 400));
-                const lineNumber = content.substring(0, foundIndex).split('\n').length;
-                results.push({
-                    filePath: file.fsPath,
-                    fileName: file.fsPath.split(/[\\/]/).pop() || file.fsPath,
-                    language: doc.languageId,
-                    codeSnippet: snippet,
-                    functionName: extractFunctionName(content, foundIndex, doc.languageId),
-                    lineNumber,
-                    relevanceScore: Math.min(1.0, bestScore * 0.8),
-                    explanation: `Match for "${bestVariant}" (score: ${bestScore.toFixed(2)})`
-                });
-            }
-        }
-        catch (err) {
-            (0, logger_1.logWarn)(`directPhraseSearchInFiles error for ${file.fsPath}: ${String(err)}`);
-        }
-    }
-    if (results.length === 0) {
-        (0, logger_1.logDebug)('🔍 [DIRECT_SEARCH] No direct matches found, returning relevant files');
-        const concepts = (0, code_utils_1.extractConcepts)(phrase.toLowerCase());
-        const primaryConcept = concepts.length > 0 ? concepts[0] : '';
-        for (const file of files.slice(0, Math.min(8, files.length))) {
-            if (results.length >= maxResults)
-                break;
-            try {
-                const ext = file.fsPath.split('.').pop() || '';
-                if (!sourceExtensions.includes(ext))
-                    continue;
-                if (searchedFiles.has(file.fsPath))
-                    continue;
-                const doc = await vscode.workspace.openTextDocument(file);
-                const content = doc.getText();
-                let relevanceScore = 0.3;
-                const functionCount = (content.match(/function\s+\w+|def\s+\w+|class\s+\w+/g) || []).length;
-                relevanceScore += Math.min(0.3, functionCount * 0.1);
-                if (primaryConcept && content.toLowerCase().includes(primaryConcept)) {
-                    relevanceScore += 0.2;
-                }
-                if (content.length < 1000) {
-                    relevanceScore += 0.1;
-                }
-                const snippet = (0, code_utils_1.extractCodeBlock)(content, 0, doc.languageId) ||
-                    content.substring(0, Math.min(300, content.length));
-                results.push({
-                    filePath: file.fsPath,
-                    fileName: file.fsPath.split(/[\\/]/).pop() || file.fsPath,
-                    language: doc.languageId,
-                    codeSnippet: snippet,
-                    functionName: extractFunctionName(content, 0, doc.languageId),
-                    lineNumber: 1,
-                    relevanceScore: Math.min(0.8, relevanceScore),
-                    explanation: `Relevant file${primaryConcept ? ` (contains ${primaryConcept})` : ''}`
-                });
-            }
-            catch (err) {
-                (0, logger_1.logWarn)(`Fallback search error for ${file.fsPath}: ${String(err)}`);
-            }
-        }
-    }
-    (0, logger_1.logDebug)(`🔍 [DIRECT_SEARCH] Found ${results.length} results`);
-    return results;
-}
-function extractFunctionName(content, index, language) {
-    const before = content.substring(Math.max(0, index - 200), index);
-    if (['javascript', 'typescript'].includes(language)) {
-        const functionMatch = before.match(/(?:function|class)\s+(\w+)\s*[{(]/);
-        if (functionMatch)
-            return functionMatch[1];
-        const constMatch = before.match(/(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s*)?(?:function|\()/);
-        if (constMatch)
-            return constMatch[1];
-    }
-    if (language === 'python') {
-        const defMatch = before.match(/def\s+(\w+)\s*\(/);
-        if (defMatch)
-            return defMatch[1];
-        const classMatch = before.match(/class\s+(\w+)\s*\(?/);
-        if (classMatch)
-            return classMatch[1];
-    }
-    return undefined;
 }
 async function handleAnalyzeEntireProjectCommand() {
     try {
@@ -500,7 +171,7 @@ async function handleAnalyzeEntireProjectCommand() {
                     }
                 }
                 catch (err) {
-                    (0, logger_1.logWarn)(`❌ [PROJECT_ANALYSIS] Could not read file: ${file.fsPath} - ${String(err)}`);
+                    console.warn(`Could not read file: ${file.fsPath}`, err);
                 }
             }
             if (!combinedContent.trim()) {
@@ -522,17 +193,14 @@ Please provide a comprehensive analysis covering:
 7. Build configuration and setup
 
 Project Analysis:`;
-            const aiRes = await resilientCallAI(prompt, 3, 800);
-            if (aiRes.isMock) {
-                vscode.window.showWarningMessage('AI returned a mock/error for project analysis. Start AI server/models for full analysis.');
-            }
-            const fullAnalysis = `## Complete Project Analysis\n\n**Files Scanned:** ${filesProcessed} of ${files.length} total files\n\n${aiRes.text}`;
+            const response = await (0, callAI_1.callAI)(prompt);
+            const fullAnalysis = `## Complete Project Analysis\n\n**Files Scanned:** ${filesProcessed} of ${files.length} total files\n\n${response}`;
             postToSidebar('Complete Project Analysis', fullAnalysis, 'analyzeProject');
         });
     }
     catch (err) {
-        (0, logger_1.logErr)(`❌ [PROJECT_ANALYSIS] Error: ${String(err)}`);
         postToSidebar('Project Analysis Error', 'Failed to analyze project: ' + String(err), 'analyzeProject');
+        console.error(err);
     }
 }
 async function handleFindBugsInProjectCommand() {
@@ -568,7 +236,7 @@ async function handleFindBugsInProjectCommand() {
                     }
                 }
                 catch (err) {
-                    (0, logger_1.logWarn)(`❌ [BUG_SCAN] Could not analyze file: ${file.fsPath} - ${String(err)}`);
+                    console.warn(`Could not analyze file: ${file.fsPath}`, err);
                 }
             }
             if (bugReports.length === 0) {
@@ -580,8 +248,8 @@ async function handleFindBugsInProjectCommand() {
         });
     }
     catch (err) {
-        (0, logger_1.logErr)(`❌ [BUG_SCAN] Error: ${String(err)}`);
         postToSidebar('Bug Scan Error', 'Failed to scan project for bugs: ' + String(err), 'findBugsInProject');
+        console.error(err);
     }
 }
 async function handleGenerateProjectSummaryCommand() {
@@ -653,17 +321,14 @@ Please provide:
 7. Dependencies and build process insights
 
 Project Summary:`;
-            const aiRes = await resilientCallAI(prompt, 3, 800);
-            if (aiRes.isMock) {
-                vscode.window.showWarningMessage('AI returned a mock/error for project summary. Start AI server/models for full results.');
-            }
-            const fullReport = `## Project Overview\n\n**File Statistics:**\n- Total Files: ${fileStats.total}\n- Languages: ${JSON.stringify(fileStats.byLanguage)}\n- Extensions: ${JSON.stringify(fileStats.byExtension)}\n- Key Files Analyzed: ${filesRead}\n\n${aiRes.text}`;
+            const response = await (0, callAI_1.callAI)(prompt);
+            const fullReport = `## Project Overview\n\n**File Statistics:**\n- Total Files: ${fileStats.total}\n- Languages: ${JSON.stringify(fileStats.byLanguage)}\n- Extensions: ${JSON.stringify(fileStats.byExtension)}\n- Key Files Analyzed: ${filesRead}\n\n${response}`;
             postToSidebar('Project Summary', fullReport, 'generateProjectSummary');
         });
     }
     catch (err) {
-        (0, logger_1.logErr)(`❌ [PROJECT_SUMMARY] Error: ${String(err)}`);
         postToSidebar('Summary Error', 'Failed to generate project summary: ' + String(err), 'generateProjectSummary');
+        console.error(err);
     }
 }
 async function handleChatCommand(payload) {
@@ -680,16 +345,13 @@ async function handleChatCommand(payload) {
 Please provide a helpful, concise response focused on coding assistance. If they're asking about code, provide practical examples and explanations.
 
 Response:`;
-            const aiRes = await resilientCallAI(prompt, 3, 500);
-            if (aiRes.isMock) {
-                vscode.window.showWarningMessage('AI returned a mock/error for chat. Start AI server/models for full responses.');
-            }
-            postToSidebar('Chat Response', aiRes.text, 'chat');
+            const response = await (0, callAI_1.callAI)(prompt);
+            postToSidebar('Chat Response', response, 'chat');
         });
     }
     catch (err) {
-        (0, logger_1.logErr)(`❌ [CHAT] Error: ${String(err)}`);
         postToSidebar('Chat Error', 'Failed to process your message: ' + String(err), 'chat');
+        console.error(err);
     }
 }
 async function handleExplainCodeCommand(payload) {
@@ -728,16 +390,13 @@ Provide a clear explanation covering:
 4. Any notable patterns or architectures
 
 Explanation:`;
-            const aiRes = await resilientCallAI(prompt);
-            if (aiRes.isMock) {
-                vscode.window.showWarningMessage('AI returned a mock/error for explanation. Start AI server/models for full explanations.');
-            }
-            postToSidebar('Code Explanation', aiRes.text, 'explainCode');
+            const response = await (0, callAI_1.callAI)(prompt);
+            postToSidebar('Code Explanation', response, 'explainCode');
         });
     }
     catch (err) {
-        (0, logger_1.logErr)(`❌ [EXPLAIN_CODE] Error: ${String(err)}`);
         postToSidebar('Explanation Error', 'Failed to explain code: ' + String(err), 'explainCode');
+        console.error(err);
     }
 }
 async function handleSummarizeFileCommand(payload) {
@@ -782,16 +441,13 @@ Please provide:
 5. Any notable complexity or important details
 
 Summary:`;
-            const aiRes = await resilientCallAI(prompt);
-            if (aiRes.isMock) {
-                vscode.window.showWarningMessage('AI returned a mock/error for file summary. Start AI server/models for full summaries.');
-            }
-            postToSidebar(`File Summary - ${safePath.split(/[\\/]/).pop()}`, aiRes.text, 'summarizeFile');
+            const response = await (0, callAI_1.callAI)(prompt);
+            postToSidebar(`File Summary - ${safePath.split(/[\\/]/).pop()}`, response, 'summarizeFile');
         });
     }
     catch (err) {
-        (0, logger_1.logErr)(`❌ [SUMMARIZE_FILE] Error: ${String(err)}`);
         postToSidebar('Summary Error', 'Failed to summarize file: ' + String(err), 'summarizeFile');
+        console.error(err);
     }
 }
 async function handleFindBugsCommand(payload) {
@@ -838,16 +494,13 @@ For each issue found, provide:
 - Suggested fix
 
 Analysis:`;
-            const aiRes = await resilientCallAI(prompt);
-            if (aiRes.isMock) {
-                vscode.window.showWarningMessage('AI returned a mock/error for bug analysis. Start AI server/models for full results.');
-            }
-            postToSidebar('Code Issues Analysis', aiRes.text, 'findBugs');
+            const response = await (0, callAI_1.callAI)(prompt);
+            postToSidebar('Code Issues Analysis', response, 'findBugs');
         });
     }
     catch (err) {
-        (0, logger_1.logErr)(`❌ [FIND_BUGS] Error: ${String(err)}`);
         postToSidebar('Bug Analysis Error', 'Failed to analyze code for issues: ' + String(err), 'findBugs');
+        console.error(err);
     }
 }
 async function handleSuggestImprovementsCommand(payload) {
@@ -893,207 +546,998 @@ For each suggestion, include:
 - Example of the improved code (if applicable)
 
 Improvement Suggestions:`;
-            const aiRes = await resilientCallAI(prompt);
-            if (aiRes.isMock) {
-                vscode.window.showWarningMessage('AI returned a mock/error for improvement suggestions. Start AI server/models for full results.');
-            }
-            postToSidebar('Code Improvement Suggestions', aiRes.text, 'suggestImprovements');
+            const response = await (0, callAI_1.callAI)(prompt);
+            postToSidebar('Code Improvement Suggestions', response, 'suggestImprovements');
         });
     }
     catch (err) {
-        (0, logger_1.logErr)(`❌ [SUGGEST_IMPROVEMENTS] Error: ${String(err)}`);
         postToSidebar('Improvement Error', 'Failed to suggest improvements: ' + String(err), 'suggestImprovements');
+        console.error(err);
     }
 }
-async function handleSemanticSearchCommand(payload) {
-    const dbg = (0, logger_1.getDebugChannel)();
-    dbg.show(true);
-    dbg.appendLine(`🔍 [DEBUG] handleSemanticSearchCommand invoked with payload: ${JSON.stringify(payload)}`);
+async function handleCodeUnderstandingSearchCommand(payload) {
     try {
         const query = payload?.query;
         if (!query?.trim()) {
-            dbg.appendLine('🔍 [DEBUG] Empty query provided, aborting search.');
-            postToSidebar('Semantic Search', 'Please describe what code you\'re looking for.', 'semanticSearch');
+            postToSidebar('Code Understanding Search', 'Please describe what code you\'re looking for.', 'codeUnderstandingSearch');
             return;
         }
-        dbg.appendLine(`🔍 [DEBUG] Query: "${query}"`);
-        await runWithProgress('Finding matching code...', async (progress) => {
-            progress.report({ message: 'Analyzing your description...' });
-            const allFiles = await getAllProjectFiles();
-            dbg.appendLine(`🔍 [DEBUG] Found ${allFiles.length} total workspace files`);
-            if (allFiles.length === 0) {
-                dbg.appendLine(`🔍 [DEBUG] No files found for query "${query}"`);
-                postToSidebar('Semantic Search', `No files found matching "${query}"`, 'semanticSearch');
+        await runWithProgress('Understanding your code request...', async (progress) => {
+            progress.report({ message: 'Scanning project for matching code...' });
+            const files = await getAllProjectFiles();
+            if (files.length === 0) {
+                postToSidebar('Code Understanding Search', 'No files found in project.', 'codeUnderstandingSearch');
                 return;
             }
-            const sourceExtensions = ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'php', 'rb', 'go', 'rs'];
-            const sourceFiles = allFiles.filter(f => sourceExtensions.includes((f.fsPath.split('.').pop() || '').toLowerCase()));
-            dbg.appendLine(`🔍 [DEBUG] ${sourceFiles.length} source files after filtering`);
-            if (sourceFiles.length === 0) {
-                dbg.appendLine(`🔍 [DEBUG] No source files found`);
-                postToSidebar('Semantic Search', `No source code files found in project`, 'semanticSearch');
-                return;
-            }
-            progress.report({ message: 'Extracting functions and code sections...' });
-            const codeSections = [];
-            const batchSize = 10;
-            for (let i = 0; i < sourceFiles.length; i += batchSize) {
+            const sourceFiles = files.filter(file => {
+                const ext = file.fsPath.split('.').pop() || '';
+                const sourceExtensions = ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'php', 'rb', 'go', 'rs'];
+                return sourceExtensions.includes(ext);
+            });
+            progress.report({ message: `Analyzing ${sourceFiles.length} source files...` });
+            const matchingCodeSnippets = [];
+            const batchSize = 8;
+            for (let i = 0; i < Math.min(sourceFiles.length, 30); i += batchSize) {
                 const batch = sourceFiles.slice(i, i + batchSize);
                 for (const file of batch) {
                     try {
                         const doc = await vscode.workspace.openTextDocument(file);
                         const content = doc.getText();
-                        const language = doc.languageId || getLanguageFromExtension(file.fsPath.split('.').pop() || '');
-                        const sections = (0, code_utils_1.extractCodeSections)(content, language);
-                        sections.forEach(section => {
-                            codeSections.push({
-                                filePath: file.fsPath,
-                                fileName: file.fsPath.split(/[\\/]/).pop() || file.fsPath,
-                                language,
-                                sectionType: section.type,
-                                sectionName: section.name,
-                                code: section.code,
-                                lineNumber: section.lineNumber
-                            });
-                        });
-                        dbg.appendLine(`   📄 Extracted ${sections.length} sections from ${file.fsPath}`);
+                        if (content.trim().length < 10)
+                            continue;
+                        const codeSegments = extractCodeSegments(content, doc.languageId);
+                        if (codeSegments.length === 0)
+                            continue;
+                        for (const segment of codeSegments.slice(0, 5)) {
+                            const isRelevant = await analyzeCodeRelevance(query, segment.code, doc.languageId, segment.type);
+                            if (isRelevant.relevant) {
+                                matchingCodeSnippets.push({
+                                    filePath: file.fsPath,
+                                    fileName: file.fsPath.split(/[\\/]/).pop() || file.fsPath,
+                                    language: doc.languageId,
+                                    codeSnippet: segment.code,
+                                    functionName: segment.name,
+                                    lineNumber: segment.lineNumber,
+                                    relevanceScore: isRelevant.confidence,
+                                    explanation: isRelevant.explanation
+                                });
+                            }
+                        }
                     }
                     catch (err) {
-                        dbg.appendLine(`   ❌ Error processing ${file.fsPath}: ${String(err)}`);
+                        console.warn(`Could not analyze file: ${file.fsPath}`, err);
                     }
                 }
                 progress.report({
-                    message: `Processed ${Math.min(i + batchSize, sourceFiles.length)}/${sourceFiles.length} files...`,
+                    message: `Analyzed ${Math.min(i + batchSize, sourceFiles.length)}/${sourceFiles.length} files...`,
                     increment: (batchSize / sourceFiles.length) * 100
                 });
             }
-            dbg.appendLine(`🔍 [DEBUG] Extracted ${codeSections.length} total code sections`);
-            if (codeSections.length === 0) {
-                dbg.appendLine(`🔍 [DEBUG] No code sections extracted`);
-                postToSidebar('Semantic Search', 'No functions or code sections found in project files.', 'semanticSearch');
+            matchingCodeSnippets.sort((a, b) => b.relevanceScore - a.relevanceScore);
+            if (matchingCodeSnippets.length === 0) {
+                postToSidebar('Code Understanding Search', `No code found that matches: "${query}"\n\nTry describing what the code does in different words.`, 'codeUnderstandingSearch');
                 return;
-            }
-            progress.report({ message: 'Finding matches using AI/embeddings...' });
-            try {
-                dbg.appendLine('🔬 [DEBUG] Attempting embedding-based search as a first pass');
-                const embeddingMatches = await (0, search_1.semanticSearch)(query, 12);
-                if (embeddingMatches && embeddingMatches.length > 0) {
-                    dbg.appendLine(`🔬 [DEBUG] Embedding search returned ${embeddingMatches.length} results`);
-                    const mapped = embeddingMatches.map((m) => ({
-                        filePath: m.filePath,
-                        fileName: m.filePath.split(/[\\/]/).pop() || m.filePath,
-                        language: (m.language || '').toLowerCase(),
-                        sectionType: m.sectionType || 'function',
-                        sectionName: m.functionName || m.sectionName || 'code block',
-                        code: (m.code || m.snippet || m.text || '').substring(0, 1200),
-                        lineNumber: m.startLine || m.lineNumber || 1,
-                        confidence: m.score || m.similarity || m.confidence || 0.6,
-                        explanation: m.explanation || 'Embedding similarity match'
-                    }));
-                    const formattedResults = {
-                        type: 'codeUnderstandingResults',
-                        title: `Embedding Semantic Results for: "${query}"`,
-                        summary: `Found ${mapped.length} code sections using embeddings for "${query}"`,
-                        query: query,
-                        intent: {
-                            searchType: 'function',
-                            language: 'any',
-                            concepts: [query],
-                            isFunctionSearch: true,
-                            isClassSearch: false,
-                            isPatternSearch: false
-                        },
-                        results: mapped.slice(0, 12)
-                    };
-                    postToSidebar('Natural Language Search Results', formattedResults, 'semanticSearch');
-                    dbg.appendLine('🔚 [DEBUG] Returning embedding-based results');
-                    return;
-                }
-                else {
-                    dbg.appendLine('🔬 [DEBUG] Embedding search returned no results (vector store may be empty)');
-                }
-            }
-            catch (err) {
-                dbg.appendLine(`⚠️ [DEBUG] Embedding-based search errored: ${String(err)}`);
-            }
-            const matchingSections = await findMatchingCodeSections(query, codeSections);
-            dbg.appendLine(`🔍 [DEBUG] Found ${matchingSections.length} matching sections`);
-            if (matchingSections.length === 0) {
-                dbg.appendLine(`🔍 [DEBUG] No AI matches, trying fallback search`);
-                const fallbackResults = await directPhraseSearchInFiles(query, sourceFiles.slice(0, 20), 8);
-                const fallbackMatches = fallbackResults.map(result => ({
-                    filePath: result.filePath,
-                    fileName: result.fileName,
-                    language: result.language,
-                    sectionType: 'function',
-                    sectionName: result.functionName || 'code block',
-                    code: result.codeSnippet,
-                    lineNumber: result.lineNumber,
-                    confidence: result.relevanceScore,
-                    explanation: result.explanation
-                }));
-                if (fallbackMatches.length > 0) {
-                    dbg.appendLine(`🔍 [DEBUG] Fallback found ${fallbackMatches.length} results`);
-                    matchingSections.push(...fallbackMatches);
-                }
             }
             const formattedResults = {
                 type: 'codeUnderstandingResults',
-                title: `Code Search Results for: "${query}"`,
-                summary: matchingSections.length > 0
-                    ? `Found ${matchingSections.length} code sections matching your description`
-                    : `No exact matches found for "${query}". Try describing the functionality in different words.`,
+                title: 'Code Understanding Search',
+                summary: `Found ${matchingCodeSnippets.length} code segments matching your description: "${query}"`,
                 query: query,
-                intent: {
-                    searchType: 'function',
-                    language: 'any',
-                    concepts: [query],
-                    isFunctionSearch: true,
-                    isClassSearch: false,
-                    isPatternSearch: false
-                },
-                results: matchingSections.map((section) => ({
-                    filePath: section.filePath,
-                    fileName: section.fileName,
-                    language: section.language,
-                    codeSnippet: section.code,
-                    functionName: section.sectionName,
-                    lineNumber: section.lineNumber,
-                    relevanceScore: section.confidence || 0.5,
-                    explanation: section.explanation || `Matches your description: "${query}"`
-                }))
+                results: matchingCodeSnippets.slice(0, 10)
             };
-            dbg.appendLine(`🔍 [DEBUG] Sending ${formattedResults.results.length} results to sidebar`);
-            postToSidebar('Natural Language Search Results', formattedResults, 'semanticSearch');
+            postToSidebar('Code Understanding Results', formattedResults, 'codeUnderstandingSearch');
         });
     }
     catch (err) {
-        const dbg = (0, logger_1.getDebugChannel)();
-        dbg.appendLine(`🔍 [DEBUG] Error in handleSemanticSearchCommand: ${String(err)}`);
-        (0, logger_1.logErr)(`❌ [SEMANTIC_SEARCH] Error: ${String(err)}`);
-        postToSidebar('Semantic Search Error', 'Failed to search for code: ' + String(err), 'semanticSearch');
+        postToSidebar('Code Understanding Error', 'Failed to search for matching code: ' + String(err), 'codeUnderstandingSearch');
+        console.error(err);
     }
 }
-function setSidebarProvider(provider) {
-    sidebarProvider = provider;
-}
-function activate(context) {
-    context.subscriptions.push((0, logger_1.getDebugChannel)());
+function extractCodeSegments(content, language) {
+    const segments = [];
+    const lines = content.split('\n');
     try {
-        (0, debug_search_command_1.registerDebugSearchCommand)(context);
-        (0, logger_1.logInfo)('✅ Debug search command registered: vs-code-ai-extension.debugSearch');
+        if (['javascript', 'typescript'].includes(language)) {
+            const functionRegex = /(?:function\s+(\w+)|const\s+(\w+)\s*=\s*(?:\([^)]*\)\s*=>|function)|class\s+(\w+))/g;
+            let match;
+            while ((match = functionRegex.exec(content)) !== null) {
+                const name = match[1] || match[2] || match[3];
+                const startLine = content.substring(0, match.index).split('\n').length;
+                const codeBlock = extractCodeBlock(content, match.index, language);
+                if (codeBlock) {
+                    segments.push({
+                        name: name,
+                        code: codeBlock,
+                        type: match[3] ? 'class' : 'function',
+                        lineNumber: startLine
+                    });
+                }
+            }
+        }
+        if (language === 'python') {
+            const functionRegex = /def\s+(\w+)\s*\(/g;
+            const classRegex = /class\s+(\w+)\s*\(?/g;
+            let match;
+            while ((match = functionRegex.exec(content)) !== null) {
+                const startLine = content.substring(0, match.index).split('\n').length;
+                const codeBlock = extractCodeBlock(content, match.index, language);
+                if (codeBlock) {
+                    segments.push({
+                        name: match[1],
+                        code: codeBlock,
+                        type: 'function',
+                        lineNumber: startLine
+                    });
+                }
+            }
+            while ((match = classRegex.exec(content)) !== null) {
+                const startLine = content.substring(0, match.index).split('\n').length;
+                const codeBlock = extractCodeBlock(content, match.index, language);
+                if (codeBlock) {
+                    segments.push({
+                        name: match[1],
+                        code: codeBlock,
+                        type: 'class',
+                        lineNumber: startLine
+                    });
+                }
+            }
+        }
+        if (segments.length === 0) {
+            const substantialStart = lines.findIndex(line => line.trim().length > 0 &&
+                !line.trim().startsWith('//') &&
+                !line.trim().startsWith('#') &&
+                !line.trim().startsWith('import') &&
+                !line.trim().startsWith('from ') &&
+                !line.trim().startsWith('package ') &&
+                !line.trim().startsWith('using '));
+            if (substantialStart !== -1) {
+                const codeBlock = lines.slice(substantialStart, Math.min(substantialStart + 20, lines.length)).join('\n');
+                segments.push({
+                    name: 'main',
+                    code: codeBlock,
+                    type: 'code block',
+                    lineNumber: substantialStart + 1
+                });
+            }
+        }
     }
     catch (err) {
-        (0, logger_1.logWarn)(`Unable to register debug search command: ${String(err)}`);
+        console.warn('Error extracting code segments:', err);
     }
+    return segments;
+}
+function extractCodeBlock(content, startIndex, language) {
     try {
-        (0, search_1.initializeSearch)(context);
-        (0, logger_1.logInfo)('✅ Search functionality initialized');
+        const bracketLanguages = ['javascript', 'typescript', 'java', 'cpp', 'c', 'cs', 'php', 'go', 'rust'];
+        const indentLanguages = ['python', 'ruby'];
+        if (bracketLanguages.includes(language)) {
+            let braceCount = 0;
+            let inBlock = false;
+            let endIndex = startIndex;
+            for (let i = startIndex; i < content.length; i++) {
+                if (content[i] === '{') {
+                    braceCount++;
+                    inBlock = true;
+                }
+                else if (content[i] === '}') {
+                    braceCount--;
+                }
+                if (inBlock && braceCount === 0 && content[i] === '}') {
+                    endIndex = i + 1;
+                    break;
+                }
+            }
+            return content.substring(startIndex, endIndex).trim();
+        }
+        else if (indentLanguages.includes(language)) {
+            const lines = content.substring(startIndex).split('\n');
+            if (lines.length === 0)
+                return '';
+            const firstLine = lines[0];
+            const baseIndent = firstLine.match(/^\s*/)?.[0].length || 0;
+            const codeLines = [firstLine];
+            for (let i = 1; i < lines.length; i++) {
+                const currentIndent = lines[i].match(/^\s*/)?.[0].length || 0;
+                if (currentIndent > baseIndent || lines[i].trim() === '') {
+                    codeLines.push(lines[i]);
+                }
+                else {
+                    break;
+                }
+            }
+            return codeLines.join('\n').trim();
+        }
     }
-    catch (e) {
-        (0, logger_1.logWarn)(`Search initialization failed during activation: ${String(e)}`);
+    catch (err) {
+        console.warn('Error extracting code block:', err);
+    }
+    return content.substring(startIndex, Math.min(startIndex + 500, content.length)).trim();
+}
+async function analyzeCodeRelevance(query, code, language, codeType) {
+    try {
+        const prompt = `I'm looking for code that: "${query}"
+    
+Here is a ${codeType} (${language}) from my project:
+\`\`\`${language}
+${code.substring(0, 1500)}
+\`\`\`
+
+Please analyze if this code matches what I'm looking for. Consider:
+- What the code actually does
+- Its purpose and functionality
+- Key operations it performs
+- Patterns or architectures it uses
+
+Respond with a JSON object:
+{
+  "relevant": true/false,
+  "confidence": 0.0 to 1.0,
+  "explanation": "Brief explanation of why it matches or doesn't match"
+}
+
+IMPORTANT: Return ONLY valid JSON, no other text.`;
+        const response = await (0, callAI_1.callAI)(prompt);
+        console.log('AI Response for code relevance:', response);
+        try {
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const result = JSON.parse(jsonMatch[0]);
+                return {
+                    relevant: result.relevant === true,
+                    confidence: Math.min(1.0, Math.max(0.0, result.confidence || 0.5)),
+                    explanation: result.explanation || 'No explanation provided'
+                };
+            }
+        }
+        catch (parseErr) {
+            console.warn('Failed to parse AI response as JSON:', parseErr);
+            console.warn('Raw response was:', response);
+        }
+        return analyzeTextResponseForRelevance(response, query, code);
+    }
+    catch (err) {
+        console.warn('Error analyzing code relevance:', err);
+        return {
+            relevant: false,
+            confidence: 0.0,
+            explanation: 'Error analyzing code relevance'
+        };
     }
 }
+function analyzeTextResponseForRelevance(response, query, code) {
+    const responseLower = response.toLowerCase();
+    const queryTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 3);
+    const codeLower = code.toLowerCase();
+    const positiveIndicators = [
+        'relevant', 'matches', 'yes', 'true', 'correct', 'appropriate',
+        'fits', 'suitable', 'related', 'similar', 'does match', 'is relevant'
+    ];
+    const negativeIndicators = [
+        'not relevant', 'no', 'false', 'does not match', 'unrelated',
+        'different', 'irrelevant', 'not what', 'no match'
+    ];
+    let relevant = false;
+    let confidence = 0.5;
+    let explanation = 'AI response could not be parsed, using fallback analysis';
+    const hasPositive = positiveIndicators.some(indicator => responseLower.includes(indicator));
+    const hasNegative = negativeIndicators.some(indicator => responseLower.includes(indicator));
+    if (hasPositive && !hasNegative) {
+        relevant = true;
+        confidence = 0.7;
+        explanation = 'AI indicated this code is relevant to your query';
+    }
+    else if (hasNegative && !hasPositive) {
+        relevant = false;
+        confidence = 0.3;
+        explanation = 'AI indicated this code is not relevant to your query';
+    }
+    else {
+        const matches = queryTerms.filter(term => codeLower.includes(term)).length;
+        const keywordConfidence = matches / Math.max(1, queryTerms.length);
+        relevant = keywordConfidence > 0.3;
+        confidence = keywordConfidence;
+        explanation = `Matched ${matches} of ${queryTerms.length} key terms from your query`;
+    }
+    return {
+        relevant,
+        confidence,
+        explanation
+    };
+}
+async function handleSemanticFunctionSearchCommand(payload) {
+    try {
+        const query = payload?.query;
+        if (!query?.trim()) {
+            postToSidebar('Semantic Function Search', 'Please describe what functions you\'re looking for.', 'semanticFunctionSearch');
+            return;
+        }
+        await runWithProgress('Searching for functions...', async (progress) => {
+            progress.report({ message: 'Scanning project for matching functions...' });
+            const files = await getAllProjectFiles();
+            if (files.length === 0) {
+                postToSidebar('Semantic Function Search', 'No files found in project.', 'semanticFunctionSearch');
+                return;
+            }
+            const sourceFiles = files.filter(file => {
+                const ext = file.fsPath.split('.').pop() || '';
+                const sourceExtensions = ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'php', 'rb', 'go', 'rs'];
+                return sourceExtensions.includes(ext);
+            });
+            progress.report({ message: `Analyzing ${sourceFiles.length} source files...` });
+            const functionResults = [];
+            for (let i = 0; i < Math.min(sourceFiles.length, 30); i++) {
+                const file = sourceFiles[i];
+                progress.report({
+                    message: `Analyzing ${file.fsPath.split(/[\\/]/).pop()}...`,
+                    increment: (100 / Math.min(sourceFiles.length, 30))
+                });
+                try {
+                    const doc = await vscode.workspace.openTextDocument(file);
+                    const content = doc.getText();
+                    if (content.trim().length < 10)
+                        continue;
+                    const functions = extractAllFunctions(content, doc.languageId, file.fsPath);
+                    for (const func of functions.slice(0, 10)) {
+                        const isRelevant = await analyzeFunctionRelevance(query, func, doc.languageId);
+                        if (isRelevant.relevant) {
+                            functionResults.push({
+                                filePath: file.fsPath,
+                                fileName: file.fsPath.split(/[\\/]/).pop() || file.fsPath,
+                                language: doc.languageId,
+                                functionName: func.name,
+                                functionType: func.type,
+                                codeSnippet: func.code,
+                                lineNumber: func.lineNumber,
+                                relevanceScore: isRelevant.confidence,
+                                explanation: isRelevant.explanation
+                            });
+                        }
+                    }
+                }
+                catch (err) {
+                    console.warn(`Could not analyze file: ${file.fsPath}`, err);
+                }
+            }
+            functionResults.sort((a, b) => b.relevanceScore - a.relevanceScore);
+            if (functionResults.length === 0) {
+                postToSidebar('Semantic Function Search', `No functions found that match: "${query}"\n\nTry describing the function purpose in different words.`, 'semanticFunctionSearch');
+                return;
+            }
+            const formattedResults = {
+                type: 'functionSearchResults',
+                title: 'Function Search Results',
+                summary: `Found ${functionResults.length} functions matching your description: "${query}"`,
+                query: query,
+                results: functionResults.slice(0, 15)
+            };
+            postToSidebar('Function Search Results', formattedResults, 'semanticFunctionSearch');
+        });
+    }
+    catch (err) {
+        postToSidebar('Function Search Error', 'Failed to search for functions: ' + String(err), 'semanticFunctionSearch');
+        console.error(err);
+    }
+}
+function extractAllFunctions(content, language, filePath) {
+    const functions = [];
+    const lines = content.split('\n');
+    try {
+        if (['javascript', 'typescript', 'jsx', 'tsx'].includes(language)) {
+            const functionDeclRegex = /function\s+(\w+)\s*\([^)]*\)\s*{/g;
+            const arrowFunctionRegex = /(?:const|let|var)\s+(\w+)\s*=\s*(?:\([^)]*\)\s*=>|function\s*\([^)]*\))\s*{/g;
+            const methodRegex = /(?:public|private|protected|static)?\s*(\w+)\s*\([^)]*\)\s*{/g;
+            const classRegex = /class\s+(\w+)/g;
+            let match;
+            while ((match = functionDeclRegex.exec(content)) !== null) {
+                const name = match[1];
+                const startLine = content.substring(0, match.index).split('\n').length;
+                const codeBlock = extractCodeBlock(content, match.index, language);
+                if (codeBlock && name) {
+                    functions.push({
+                        name,
+                        code: codeBlock,
+                        type: 'function',
+                        lineNumber: startLine,
+                        signature: `function ${name}()`
+                    });
+                }
+            }
+            while ((match = arrowFunctionRegex.exec(content)) !== null) {
+                const name = match[1];
+                const startLine = content.substring(0, match.index).split('\n').length;
+                const codeBlock = extractCodeBlock(content, match.index, language);
+                if (codeBlock && name) {
+                    functions.push({
+                        name,
+                        code: codeBlock,
+                        type: 'arrow function',
+                        lineNumber: startLine,
+                        signature: `const ${name} = () => {}`
+                    });
+                }
+            }
+            while ((match = classRegex.exec(content)) !== null) {
+                const name = match[1];
+                const startLine = content.substring(0, match.index).split('\n').length;
+                const codeBlock = extractCodeBlock(content, match.index, language);
+                if (codeBlock && name) {
+                    functions.push({
+                        name,
+                        code: codeBlock,
+                        type: 'class',
+                        lineNumber: startLine,
+                        signature: `class ${name}`
+                    });
+                }
+            }
+        }
+        if (language === 'python') {
+            const functionRegex = /def\s+(\w+)\s*\([^)]*\):/g;
+            const classRegex = /class\s+(\w+)\s*\(?/g;
+            let match;
+            while ((match = functionRegex.exec(content)) !== null) {
+                const name = match[1];
+                const startLine = content.substring(0, match.index).split('\n').length;
+                const codeBlock = extractCodeBlock(content, match.index, language);
+                if (codeBlock && name) {
+                    functions.push({
+                        name,
+                        code: codeBlock,
+                        type: 'function',
+                        lineNumber: startLine,
+                        signature: `def ${name}()`
+                    });
+                }
+            }
+            while ((match = classRegex.exec(content)) !== null) {
+                const name = match[1];
+                const startLine = content.substring(0, match.index).split('\n').length;
+                const codeBlock = extractCodeBlock(content, match.index, language);
+                if (codeBlock && name) {
+                    functions.push({
+                        name,
+                        code: codeBlock,
+                        type: 'class',
+                        lineNumber: startLine,
+                        signature: `class ${name}`
+                    });
+                }
+            }
+        }
+        if (language === 'java') {
+            const methodRegex = /(?:public|private|protected)\s+(?:\w+\s+)*(\w+)\s*\([^)]*\)\s*\{/g;
+            const classRegex = /class\s+(\w+)/g;
+            let match;
+            while ((match = methodRegex.exec(content)) !== null) {
+                const name = match[1];
+                const startLine = content.substring(0, match.index).split('\n').length;
+                const codeBlock = extractCodeBlock(content, match.index, language);
+                if (codeBlock && name) {
+                    functions.push({
+                        name,
+                        code: codeBlock,
+                        type: 'method',
+                        lineNumber: startLine,
+                        signature: `${name}()`
+                    });
+                }
+            }
+            while ((match = classRegex.exec(content)) !== null) {
+                const name = match[1];
+                const startLine = content.substring(0, match.index).split('\n').length;
+                const codeBlock = extractCodeBlock(content, match.index, language);
+                if (codeBlock && name) {
+                    functions.push({
+                        name,
+                        code: codeBlock,
+                        type: 'class',
+                        lineNumber: startLine,
+                        signature: `class ${name}`
+                    });
+                }
+            }
+        }
+    }
+    catch (err) {
+        console.warn('Error extracting functions:', err);
+    }
+    return functions;
+}
+async function analyzeFunctionRelevance(query, func, language) {
+    try {
+        const prompt = `I'm looking for functions that: "${query}"
+    
+Here is a ${func.type} from my project:
+Name: ${func.name}
+Type: ${func.type}
+Signature: ${func.signature}
+Language: ${language}
+
+Code:
+\`\`\`${language}
+${func.code.substring(0, 1200)}
+\`\`\`
+
+Analyze if this function matches what I'm looking for. Consider:
+- What the function actually does
+- Its purpose and functionality
+- Input parameters and return values
+- Key operations it performs
+- Whether it matches the described behavior
+
+Respond with a JSON object:
+{
+  "relevant": true/false,
+  "confidence": 0.0 to 1.0,
+  "explanation": "Brief explanation of why it matches or doesn't match, focusing on the function's actual behavior"
+}
+
+IMPORTANT: Return ONLY valid JSON, no other text.`;
+        const response = await (0, callAI_1.callAI)(prompt);
+        try {
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const result = JSON.parse(jsonMatch[0]);
+                return {
+                    relevant: result.relevant === true,
+                    confidence: Math.min(1.0, Math.max(0.0, result.confidence || 0.5)),
+                    explanation: result.explanation || 'No explanation provided'
+                };
+            }
+        }
+        catch (parseErr) {
+            console.warn('Failed to parse AI response as JSON:', parseErr);
+        }
+        return analyzeFunctionTextResponse(response, query, func);
+    }
+    catch (err) {
+        console.warn('Error analyzing function relevance:', err);
+        return {
+            relevant: false,
+            confidence: 0.0,
+            explanation: 'Error analyzing function relevance'
+        };
+    }
+}
+function analyzeFunctionTextResponse(response, query, func) {
+    const responseLower = response.toLowerCase();
+    const queryTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 3);
+    const codeLower = func.code.toLowerCase();
+    const nameLower = func.name.toLowerCase();
+    const positiveIndicators = [
+        'relevant', 'matches', 'yes', 'true', 'correct', 'appropriate',
+        'fits', 'suitable', 'related', 'similar', 'does match', 'is relevant',
+        'this function', 'exactly what', 'perfect match'
+    ];
+    const negativeIndicators = [
+        'not relevant', 'no', 'false', 'does not match', 'unrelated',
+        'different', 'irrelevant', 'not what', 'no match', 'not the function'
+    ];
+    let relevant = false;
+    let confidence = 0.5;
+    let explanation = 'AI response could not be parsed, using fallback analysis';
+    const hasPositive = positiveIndicators.some(indicator => responseLower.includes(indicator));
+    const hasNegative = negativeIndicators.some(indicator => responseLower.includes(indicator));
+    if (hasPositive && !hasNegative) {
+        relevant = true;
+        confidence = 0.8;
+        explanation = 'AI indicated this function matches your query';
+    }
+    else if (hasNegative && !hasPositive) {
+        relevant = false;
+        confidence = 0.2;
+        explanation = 'AI indicated this function does not match your query';
+    }
+    else {
+        const functionNameScore = queryTerms.some(term => nameLower.includes(term) || term.includes(nameLower)) ? 0.6 : 0.3;
+        const codeMatches = queryTerms.filter(term => codeLower.includes(term)).length;
+        const codeScore = codeMatches / Math.max(1, queryTerms.length);
+        confidence = Math.max(functionNameScore, codeScore * 0.8);
+        relevant = confidence > 0.4;
+        explanation = `Function name and code analysis: ${Math.round(confidence * 100)}% match`;
+    }
+    return {
+        relevant,
+        confidence,
+        explanation
+    };
+}
+async function handleSemanticSearchCommand(payload) {
+    try {
+        const query = payload?.query;
+        if (!query?.trim()) {
+            postToSidebar('Semantic Search', 'Please enter a search query.', 'semanticSearch');
+            return;
+        }
+        await runWithProgress('Searching with AI...', async (progress) => {
+            progress.report({ message: 'Analyzing your query...' });
+            const searchResults = (0, search_1.searchIndex)(query, 20);
+            if (searchResults.length === 0) {
+                postToSidebar('Semantic Search', `No files found matching "${query}"`, 'semanticSearch');
+                return;
+            }
+            const resultsWithContent = await Promise.all(searchResults.slice(0, 10).map(async (result) => {
+                try {
+                    const doc = await vscode.workspace.openTextDocument(result.filePath);
+                    const content = doc.getText();
+                    const functionNames = extractFunctionNames(content, doc.languageId);
+                    const codeSnippet = extractRelevantCodeSnippet(content, query);
+                    const lineNumber = findRelevantLineNumber(content, query);
+                    return {
+                        ...result,
+                        functionName: functionNames[0] || result.fileName.replace(/\.[^/.]+$/, ''),
+                        functionNames: functionNames,
+                        codeSnippet: codeSnippet || content.substring(0, 200) + '...',
+                        lineNumber: lineNumber,
+                        fullContent: content.substring(0, 1000)
+                    };
+                }
+                catch (err) {
+                    console.warn(`Could not read file: ${result.filePath}`, err);
+                    return {
+                        ...result,
+                        functionName: result.fileName.replace(/\.[^/.]+$/, ''),
+                        functionNames: [],
+                        codeSnippet: '// Could not read file content',
+                        lineNumber: 1
+                    };
+                }
+            }));
+            const filesForAnalysis = resultsWithContent.map((result, index) => `File ${index + 1}: ${result.fileName}
+Path: ${result.filePath}
+Language: ${result.language}
+Functions: ${result.functionNames.join(', ')}
+Relevant Code:
+\`\`\`${result.language}
+${result.codeSnippet}
+\`\`\``).join('\n\n');
+            const prompt = `The user is searching for: "${query}"
+      
+Here are the file search results with code snippets. Please analyze which files are most relevant to the query and provide a semantic ranking:
+
+${filesForAnalysis}
+
+Please provide:
+1. Which files are most relevant to the query and why (be specific about the code content)
+2. Key functions, classes, or code sections that match the intent
+3. Confidence scores for each file (0.1 to 1.0)
+4. Any additional insights about how the code relates to the query
+
+For each file, explain specifically what makes it relevant based on the actual code content.
+
+Semantic Analysis:`;
+            const aiResponse = await (0, callAI_1.callAI)(prompt);
+            const confidenceScores = parseConfidenceScores(aiResponse, resultsWithContent);
+            const formattedResults = {
+                type: 'semanticSearchResults',
+                title: 'AI Semantic Search',
+                summary: `AI analyzed ${resultsWithContent.length} files for: "${query}"`,
+                results: resultsWithContent.map((result, index) => ({
+                    fileName: result.fileName,
+                    filePath: result.filePath,
+                    language: result.language,
+                    lineCount: result.lineCount || 0,
+                    confidence: confidenceScores[index] || (0.8 - (index * 0.05)),
+                    codeSnippet: result.codeSnippet,
+                    functionName: result.functionName,
+                    functionNames: result.functionNames,
+                    lineNumber: result.lineNumber
+                })),
+                analysis: aiResponse
+            };
+            postToSidebar('Semantic Search Results', formattedResults, 'semanticSearch');
+        });
+    }
+    catch (err) {
+        postToSidebar('Semantic Search Error', 'Failed to perform semantic search: ' + String(err), 'semanticSearch');
+        console.error(err);
+    }
+}
+function extractFunctionNames(content, language) {
+    const functionNames = [];
+    try {
+        if (['javascript', 'typescript'].includes(language)) {
+            const functionRegex = /(?:function\s+(\w+)|const\s+(\w+)\s*=\s*(?:\([^)]*\)\s*=>|function)|class\s+(\w+))/g;
+            let match;
+            while ((match = functionRegex.exec(content)) !== null) {
+                const name = match[1] || match[2] || match[3];
+                if (name && !functionNames.includes(name)) {
+                    functionNames.push(name);
+                }
+            }
+        }
+        if (language === 'python') {
+            const functionRegex = /def\s+(\w+)\s*\(/g;
+            const classRegex = /class\s+(\w+)\s*\(?/g;
+            let match;
+            while ((match = functionRegex.exec(content)) !== null) {
+                if (match[1] && !functionNames.includes(match[1])) {
+                    functionNames.push(match[1]);
+                }
+            }
+            while ((match = classRegex.exec(content)) !== null) {
+                if (match[1] && !functionNames.includes(match[1])) {
+                    functionNames.push(match[1]);
+                }
+            }
+        }
+        if (language === 'java') {
+            const methodRegex = /(?:public|private|protected)\s+(?:\w+\s+)*(\w+)\s*\([^)]*\)\s*(?:\{|\w+)/g;
+            const classRegex = /class\s+(\w+)/g;
+            let match;
+            while ((match = methodRegex.exec(content)) !== null) {
+                if (match[1] && !functionNames.includes(match[1])) {
+                    functionNames.push(match[1]);
+                }
+            }
+            while ((match = classRegex.exec(content)) !== null) {
+                if (match[1] && !functionNames.includes(match[1])) {
+                    functionNames.push(match[1]);
+                }
+            }
+        }
+    }
+    catch (err) {
+        console.warn('Error extracting function names:', err);
+    }
+    return functionNames.slice(0, 5);
+}
+function extractRelevantCodeSnippet(content, query) {
+    try {
+        const lines = content.split('\n');
+        const queryTerms = query.toLowerCase().split(/\s+/);
+        const relevantLines = [];
+        lines.forEach((line, index) => {
+            const lowerLine = line.toLowerCase();
+            if (queryTerms.some(term => term.length > 3 && lowerLine.includes(term))) {
+                relevantLines.push(index);
+            }
+        });
+        if (relevantLines.length > 0) {
+            const firstLine = Math.max(0, relevantLines[0] - 3);
+            const lastLine = Math.min(lines.length - 1, relevantLines[0] + 8);
+            return lines.slice(firstLine, lastLine + 1).join('\n');
+        }
+        return lines.slice(0, 15).join('\n');
+    }
+    catch (err) {
+        console.warn('Error extracting code snippet:', err);
+        return content.substring(0, 200) + '...';
+    }
+}
+function findRelevantLineNumber(content, query) {
+    try {
+        const lines = content.split('\n');
+        const queryTerms = query.toLowerCase().split(/\s+/);
+        for (let i = 0; i < lines.length; i++) {
+            const lowerLine = lines[i].toLowerCase();
+            if (queryTerms.some(term => term.length > 3 && lowerLine.includes(term))) {
+                return i + 1;
+            }
+        }
+        return 1;
+    }
+    catch (err) {
+        return 1;
+    }
+}
+function parseConfidenceScores(aiResponse, results) {
+    const scores = new Array(results.length).fill(0.7);
+    try {
+        results.forEach((result, index) => {
+            const fileName = result.fileName;
+            const regex = new RegExp(`${fileName}.*?(\\d?\\.?\\d+)(?:/\\d+\\.\\d)?\\s*[Cc]onfidence`, 'i');
+            const match = aiResponse.match(regex);
+            if (match && match[1]) {
+                scores[index] = Math.min(1.0, Math.max(0.1, parseFloat(match[1])));
+            }
+            else {
+                scores[index] = 0.8 - (index * 0.05);
+            }
+        });
+    }
+    catch (err) {
+        console.warn('Error parsing confidence scores:', err);
+    }
+    return scores;
+}
+async function handleAskAICommand(payload) {
+    await handleExplainCodeCommand(payload);
+}
+async function handleSmartExplainCommand(payload) {
+    await handleExplainCodeCommand(payload);
+}
+async function handleDeepAnalysisCommand(payload) {
+    await handleFindBugsCommand(payload);
+}
+async function handlePatternAnalysisCommand() {
+    postToSidebar('Pattern Analysis', 'Pattern analysis is now integrated into the main chat. Try asking about specific patterns in your code.', 'patternAnalysis');
+}
+async function handleAnalyzeSearchResultsCommand() {
+    postToSidebar('Search Analysis', 'Search analysis is now integrated into the main chat. Try asking questions about your codebase.', 'analyzeSearchResults');
+}
+async function handleSearchProjectCommand(payload) {
+    try {
+        const q = payload?.query || '';
+        const results = (0, search_1.searchIndex)(q, 20);
+        if (results.length === 0) {
+            postToSidebar('Search Results', `No files found matching "${q}"`, 'searchProject');
+            return;
+        }
+        const formattedResults = {
+            type: 'fileList',
+            title: 'Search Results',
+            summary: `Found ${results.length} files matching "${q}"`,
+            files: results.map((r) => ({
+                fileName: r.fileName,
+                filePath: r.filePath,
+                language: r.language,
+                lineCount: r.lineCount || 0
+            }))
+        };
+        postToSidebar('Search Results', formattedResults, 'searchProject');
+    }
+    catch (err) {
+        postToSidebar('Search Error', 'Search failed: ' + String(err), 'searchProject');
+    }
+}
+async function handleBuildSearchIndexCommand() {
+    try {
+        const results = await (0, search_1.buildSearchIndex)();
+        postToSidebar('Index Built', `Successfully indexed ${results.length} files`, 'buildSearchIndex');
+    }
+    catch (err) {
+        postToSidebar('Index Error', 'Failed to build index: ' + String(err), 'buildSearchIndex');
+    }
+}
+async function handleSearchStatsCommand() {
+    try {
+        const stats = (0, search_1.getSearchStats)();
+        postToSidebar('Search Statistics', stats, 'searchStats');
+    }
+    catch (err) {
+        postToSidebar('Stats Error', 'Failed to get statistics: ' + String(err), 'searchStats');
+    }
+}
+async function handleSearchByLanguageCommand(payload) {
+    try {
+        const lang = payload?.language;
+        if (!lang) {
+            postToSidebar('Language Search', 'Please specify a language to search for.', 'searchByLanguage');
+            return;
+        }
+        const results = (0, search_1.searchByLanguage)(lang);
+        if (results.length === 0) {
+            postToSidebar(`Files in ${lang}`, `No ${lang} files found in the project.`, 'searchByLanguage');
+            return;
+        }
+        const formattedResults = {
+            type: 'fileList',
+            title: `Files in ${lang}`,
+            summary: `Found ${results.length} files in ${lang}`,
+            files: results.map((r) => ({
+                fileName: r.fileName,
+                filePath: r.filePath,
+                language: r.language,
+                lineCount: r.lineCount || 0
+            }))
+        };
+        postToSidebar(`Files in ${lang}`, formattedResults, 'searchByLanguage');
+    }
+    catch (err) {
+        postToSidebar('Language Search Error', 'Search failed: ' + String(err), 'searchByLanguage');
+    }
+}
+async function handleClearSearchIndexCommand() {
+    try {
+        (0, search_1.clearSearchIndex)();
+        postToSidebar('Index Cleared', 'Search index has been cleared', 'clearSearchIndex');
+    }
+    catch (err) {
+        postToSidebar('Clear Error', 'Failed to clear index: ' + String(err), 'clearSearchIndex');
+    }
+}
+async function handleQuickFileSearchCommand() {
+    try {
+        const recent = (0, search_1.searchIndex)('', 15);
+        if (recent.length === 0) {
+            postToSidebar('Quick Search', 'No files indexed. Build index first.', 'quickFileSearch');
+            return;
+        }
+        const items = recent.map((f) => ({
+            label: f.fileName,
+            description: f.filePath,
+            file: f,
+        }));
+        const pick = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Quick file search',
+        });
+        if (pick) {
+            const doc = await vscode.workspace.openTextDocument(pick.file.filePath);
+            await vscode.window.showTextDocument(doc);
+        }
+    }
+    catch (err) {
+        postToSidebar('Quick Search Error', 'Quick search failed: ' + String(err), 'quickFileSearch');
+    }
+}
+function activate(context) {
+    console.log('Activating VS Code AI Extension...');
+    try {
+        (0, search_1.initializeSearch)(context);
+    }
+    catch (e) {
+        console.warn('initializeSearch error', e);
+    }
+    try {
+        const refMgr = (() => {
+            try {
+                return refactor_manager_1.RefactorManager.getInstance(context);
+            }
+            catch {
+                return undefined;
+            }
+        })();
+        const provider = new sidebar_view_provider_1.SidebarViewProvider(context.extensionUri, refMgr);
+        sidebarProvider = provider;
+        context.subscriptions.push(vscode.window.registerWebviewViewProvider(sidebar_view_provider_1.SidebarViewProvider.viewId, provider, { webviewOptions: { retainContextWhenHidden: true } }));
+    }
+    catch (e) {
+        console.warn('Sidebar registration failed', e);
+    }
+    const regs = [
+        vscode.commands.registerCommand('vs-code-ai-extension.chat', handleChatCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.explainCode', handleExplainCodeCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.findBugs', handleFindBugsCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.suggestImprovements', handleSuggestImprovementsCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.codeUnderstandingSearch', handleCodeUnderstandingSearchCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.semanticSearch', handleSemanticSearchCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.semanticFunctionSearch', handleSemanticFunctionSearchCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.analyzeProject', handleAnalyzeEntireProjectCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.findBugsInProject', handleFindBugsInProjectCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.generateProjectSummary', handleGenerateProjectSummaryCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.askAI', handleAskAICommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.summarizeFile', handleSummarizeFileCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.smartExplain', handleSmartExplainCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.deepAnalysis', handleDeepAnalysisCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.patternAnalysis', handlePatternAnalysisCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.analyzeSearchResults', handleAnalyzeSearchResultsCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.searchProject', handleSearchProjectCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.buildSearchIndex', handleBuildSearchIndexCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.searchStats', handleSearchStatsCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.searchByLanguage', handleSearchByLanguageCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.clearSearchIndex', handleClearSearchIndexCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.quickFileSearch', handleQuickFileSearchCommand),
+        vscode.commands.registerCommand('vs-code-ai-extension.showSidebar', async () => {
+            try {
+                await vscode.commands.executeCommand('workbench.view.extension.vsCodeAI');
+            }
+            catch {
+            }
+            setTimeout(() => sidebarProvider?.refresh(), 400);
+        }),
+    ];
+    regs.forEach((r) => context.subscriptions.push(r));
+    setTimeout(() => {
+        (0, search_1.buildSearchIndex)()
+            .then((res) => {
+            if (res && res.length > 0) {
+                postToSidebar('Ready', `AI Assistant is ready! Indexed ${res.length} files. Ask me anything about your code!`, 'ready');
+            }
+        })
+            .catch(() => { });
+    }, 2000);
+    context.subscriptions.push(vscode.workspace.onDidSaveTextDocument((doc) => {
+        if (doc.fileName.includes('node_modules'))
+            return;
+        setTimeout(() => {
+            (0, search_1.buildSearchIndex)().catch(() => { });
+        }, 1000);
+    }));
+    console.log('VS Code AI Extension activated.');
+}
 function deactivate() {
+    console.log('VS Code AI Extension deactivated.');
 }
 //# sourceMappingURL=extension.js.map

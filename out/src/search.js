@@ -36,7 +36,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.initializeSearch = initializeSearch;
 exports.buildSearchIndex = buildSearchIndex;
 exports.__getIndexForDebug = __getIndexForDebug;
-exports.searchIndex = searchIndex;
 exports.semanticSearch = semanticSearch;
 exports.initializeSemanticSearch = initializeSemanticSearch;
 exports.getSearchStats = getSearchStats;
@@ -176,138 +175,75 @@ function splitCodeToWords(code) {
     const replaced = camelSplit.replace(/[_\-.]/g, ' ');
     return replaced.toLowerCase().split(/\W+/).filter(Boolean);
 }
-function searchIndex(query, maxResults = 10) {
-    try {
-        if (!Array.isArray(searchIndexData))
-            searchIndexData = [];
-        if (!query || !query.trim()) {
-            const recent = searchIndexData.slice().sort((a, b) => b.lastModified.getTime() - a.lastModified.getTime()).slice(0, maxResults);
-            log(`🔍 Empty query: returning ${recent.length} recent files`);
-            return recent;
+function semanticFallback(query, maxResults = 10, language = 'any') {
+    const tokens = normalizeAndTokenize(query);
+    if (tokens.length === 0)
+        return [];
+    const candidates = (searchIndexData || []).filter(f => language === 'any' || (f.language || '').toLowerCase().includes(language.toLowerCase()));
+    const scored = candidates.map(f => {
+        const hay = (f.content + ' ' + f.fileName + ' ' + f.filePath).toLowerCase();
+        let score = 0;
+        for (const t of tokens) {
+            if (hay.includes(t))
+                score += 1;
+            if ((f.fileName || '').toLowerCase().includes(t))
+                score += 1.5;
         }
-        const start = Date.now();
-        const tokens = normalizeAndTokenize(query);
-        const bigrams = [];
-        for (let i = 0; i + 1 < tokens.length; i++)
-            bigrams.push(`${tokens[i]} ${tokens[i + 1]}`);
-        const phraseList = Array.from(new Set([query.toLowerCase(), ...bigrams, ...tokens]));
-        const variantMap = {};
-        for (const p of phraseList)
-            variantMap[p] = generateIdentifierVariants(p);
-        const scored = [];
-        for (const file of searchIndexData) {
-            let score = 0;
-            const reasons = [];
-            const fName = (file.fileName || '').toLowerCase();
-            const fPath = (file.filePath || '').toLowerCase();
-            const content = (file.content || '').toLowerCase();
-            if (fName === query.toLowerCase()) {
-                score += 6;
-                reasons.push('filename exact');
-            }
-            else if (fName.includes(query.toLowerCase())) {
-                score += 3.5;
-                reasons.push('filename contains');
-            }
-            if (fPath.includes(query.toLowerCase())) {
-                score += 2;
-                reasons.push('path contains');
-            }
-            const cleanedPhrase = tokens.join(' ');
-            if (cleanedPhrase && content.includes(cleanedPhrase)) {
-                score += 3.5;
-                reasons.push('phrase in content');
-            }
-            let variantMatches = 0;
-            for (const p of phraseList) {
-                const variants = variantMap[p] || [];
-                for (const v of variants) {
-                    if (!v)
-                        continue;
-                    if (content.includes(v) || fName.includes(v) || fPath.includes(v)) {
-                        const weight = Math.min(2.0, 0.5 + Math.log(Math.max(2, v.length)) / 4);
-                        score += weight;
-                        reasons.push(`variant:${v}`);
-                        variantMatches++;
-                        break;
-                    }
-                }
-            }
-            if (variantMatches > 0)
-                score += Math.min(2, variantMatches * 0.2);
-            const codeWords = splitCodeToWords(file.content || file.fileName || '');
-            let tokenMatches = 0;
-            for (const t of tokens)
-                if (codeWords.includes(t))
-                    tokenMatches++;
-            if (tokens.length > 0) {
-                const coverage = tokenMatches / tokens.length;
-                score += Math.min(2, coverage * 2);
-                if (tokenMatches > 0)
-                    reasons.push(`tokenCoverage:${Math.round(coverage * 100)}%`);
-            }
-            const lengthPenalty = Math.min(1, (file.content?.length || 0) / 5000);
-            if (lengthPenalty > 0.9)
-                score *= 0.98;
-            if (score > 0.1)
-                scored.push({ file, score, reasons });
-        }
-        scored.sort((a, b) => {
-            if (b.score !== a.score)
-                return b.score - a.score;
-            const ta = a.file.lastModified.getTime();
-            const tb = b.file.lastModified.getTime();
-            return tb - ta;
-        });
-        let results = [];
-        if (scored.length > 0) {
-            results = scored.slice(0, maxResults).map(s => s.file);
-        }
-        else {
-            log(`🔍 No scored results for "${query}" — running fallback substring/variant scan`);
-            const fallback = [];
-            const joined = tokens.join('');
-            const normalCandidates = searchIndexData.slice(0, 800);
-            for (const file of normalCandidates) {
-                const hay = (file.content + ' ' + file.fileName + ' ' + file.filePath).toLowerCase();
-                const anyMatch = query.toLowerCase().length > 2 && hay.includes(query.toLowerCase()) ||
-                    (joined && joined.length > 2 && hay.includes(joined)) ||
-                    tokens.some(t => t.length > 1 && hay.includes(t));
-                if (anyMatch)
-                    fallback.push(file);
-                if (fallback.length >= maxResults)
-                    break;
-            }
-            results = fallback;
-        }
-        const duration = Date.now() - start;
-        log(`🔍 Search for "${query}": ${results.length} results in ${duration}ms`);
-        (scored.slice(0, Math.min(10, scored.length))).forEach((s, i) => log(`  ${i + 1}. ${s.file.fileName} score=${s.score.toFixed(3)} reasons=${s.reasons.join('; ')}`));
-        return results.slice(0, maxResults);
-    }
-    catch (err) {
-        log(`❌ searchIndex error: ${String(err)}`);
-        return searchIndexData.slice(0, Math.min(maxResults, searchIndexData.length));
-    }
+        const norm = Math.min(1, score / Math.max(1, tokens.length * 2));
+        return { item: f, score: norm };
+    }).filter(s => s.score > 0).sort((a, b) => b.score - a.score).slice(0, maxResults);
+    return scored.map(s => ({
+        filePath: s.item.filePath,
+        fileName: s.item.fileName,
+        language: s.item.language,
+        codeSnippet: (s.item.content || '').substring(0, 800),
+        lineNumber: 1,
+        confidence: s.score,
+        explanation: `Keyword overlap: ${(s.score * 100).toFixed(0)}%`
+    }));
 }
-async function semanticSearch(query, maxResults = 5) {
+async function semanticSearch(query, maxResults = 6, language = 'any') {
     try {
-        log(`Performing semantic search for: "${query}"`);
-        const results = await (0, pipeline_1.runRetrievalPipeline)(query, maxResults);
-        if (!results || results.length === 0)
-            log('No semantic results found - vector store may be empty');
-        else
-            log(`Semantic search found ${results.length} snippets`);
-        return results || [];
+        log(`🔬 Performing semantic search for: "${query}" (language=${language})`);
+        if (!searchIndexData || searchIndexData.length === 0) {
+            await buildSearchIndex();
+        }
+        try {
+            const results = await (0, pipeline_1.runRetrievalPipeline)(query, maxResults);
+            if (results && results.length > 0) {
+                log(`🔬 Embedding pipeline returned ${results.length} snippets`);
+                const mapped = results.map(r => {
+                    const filePath = r.filePath || r.path || r.file || r.file_name || r.filename || '';
+                    const fileName = filePath ? path.basename(filePath) : (r.fileName || r.name || 'unknown');
+                    const languageDetected = (r.language || r.lang || (r.metadata && r.metadata.language) || '').toLowerCase() || (r.filePath ? getLanguageFromExtension(r.filePath.split('.').pop() || '') : '');
+                    const codeSnippet = (r.code || r.snippet || r.text || r.content || '').toString().substring(0, 1200);
+                    const lineNumber = Number(r.startLine || r.lineNumber || r.start || 1) || 1;
+                    const confidence = Number(r.score ?? r.similarity ?? r.confidence ?? 0.6) || 0.6;
+                    const explanation = r.explanation || r.meta || 'Embedding similarity match';
+                    return { filePath, fileName, language: languageDetected, codeSnippet, lineNumber, confidence, explanation };
+                });
+                const filtered = mapped.filter(m => language === 'any' || (m.language || '').toLowerCase().includes((language || '').toLowerCase()));
+                return filtered.slice(0, maxResults);
+            }
+            else {
+                log('🔬 Embedding pipeline returned no results - falling back');
+            }
+        }
+        catch (err) {
+            log(`⚠️ Embedding pipeline error: ${String(err)} - falling back to token-based search`);
+        }
+        const fallback = semanticFallback(query, maxResults, language);
+        log(`🔁 Fallback semantic returned ${fallback.length} results`);
+        return fallback;
     }
     catch (err) {
-        log(`Semantic search error: ${String(err)}`);
+        log(`❌ semanticSearch error: ${String(err)}`);
         return [];
     }
 }
 async function initializeSemanticSearch() {
     try {
-        log('Initializing semantic search embeddings...');
+        log('Initializing semantic search embeddings (best-effort)...');
         const embeddings = await (0, retrieve_1.generateEmbeddingsForProject)().catch(err => {
             log(`⚠️ generateEmbeddingsForProject failed: ${String(err)}`);
             return [];
