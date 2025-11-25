@@ -104,14 +104,13 @@ export const Modal: React.FC<ModalProps> = ({
         <div className="admin-content">
           <h3>Admin Controls</h3>
           <input
-            type="text"
-            placeholder="Configuration value"
-            onChange=((e) => handleInputChange('config', e.target.value))
-          />
-          <select onChange=((e) => handleInputChange('privilege', e.target.value))>
-            <option value="read">Read</option>
-            <option value="write">Write</option>
-            <option value="admin">Admin</option>
+              type="text"
+              placeholder="Configuration value"
+              onChange=((e) => handleInputChange('config', e.target.value))/>
+             <select onChange=((e) => handleInputChange('privilege', e.target.value))>
+             <option value="read">Read</option>
+              <option value="write">Write</option>
+              <option value="admin">Admin</option>
           </select>
         </div>
       );

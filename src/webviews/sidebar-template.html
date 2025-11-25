@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${webview.cspSource}; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} https:;">
     <title>CodeSense</title>
+    
     <style>
         :root {
             --container-padding: 16px;
@@ -655,6 +656,517 @@
         ::-webkit-scrollbar-thumb:hover {
             background: var(--vscode-scrollbarSlider-activeBackground);
         }
+
+    /* Modern Search Results Styles */
+.search-results-summary {
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
+    background: linear-gradient(135deg, var(--surface-elevated), color-mix(in srgb, var(--primary) 5%));
+    border-radius: var(--border-radius-lg);
+    border: 1px solid var(--border);
+}
+
+.file-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.file-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md);
+    background: var(--surface-elevated);
+    border: 1px solid color-mix(in srgb, var(--border) 60%);
+    border-radius: var(--border-radius-lg);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+}
+
+.file-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 3px;
+    height: 100%;
+    background: linear-gradient(to bottom, var(--primary), color-mix(in srgb, var(--primary) 70%));
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.file-item:hover {
+    background: var(--surface);
+    border-color: var(--primary);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.file-item:hover::before {
+    opacity: 1;
+}
+
+.file-icon {
+    font-size: 18px;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--secondary), color-mix(in srgb, var(--primary) 20%));
+    border-radius: 10px;
+    flex-shrink: 0;
+    transition: all 0.3s ease;
+}
+
+.file-item:hover .file-icon {
+    transform: scale(1.1);
+    background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 70%));
+}
+
+.file-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.file-name {
+    font-weight: 700;
+    font-size: var(--font-size-md);
+    color: var(--text-primary);
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    letter-spacing: -0.01em;
+}
+
+.file-path {
+    font-size: var(--font-size-xs);
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--vscode-editor-font-family);
+    opacity: 0.8;
+}
+
+.file-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--font-size-xs);
+    color: var(--text-tertiary);
+}
+
+.file-language {
+    background: color-mix(in srgb, var(--primary) 10%);
+    color: var(--primary);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.file-lines {
+    background: color-mix(in srgb, var(--text-tertiary) 10%);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 500;
+}
+
+.file-actions {
+    display: flex;
+    gap: var(--spacing-xs);
+    flex-shrink: 0;
+}
+
+.file-action {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    backdrop-filter: blur(10px);
+}
+
+.file-action:hover {
+    background: var(--primary);
+    color: var(--vscode-button-foreground);
+    border-color: var(--primary);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 30%);
+}
+
+/* Enhanced Analysis Summary */
+.analysis-summary {
+    background: linear-gradient(135deg, var(--surface-elevated), color-mix(in srgb, var(--primary) 8%));
+    border-left: 4px solid var(--primary);
+    padding: var(--spacing-lg);
+    border-radius: var(--border-radius-lg);
+    margin-bottom: var(--spacing-lg);
+    font-size: var(--font-size-md);
+    line-height: 1.5;
+    position: relative;
+    overflow: hidden;
+}
+
+.analysis-summary::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 60px;
+    height: 60px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 10%), transparent);
+    border-radius: 0 0 0 100%;
+}
+
+/* Modern Empty State */
+.empty-state {
+    text-align: center;
+    padding: var(--spacing-xl);
+    color: var(--text-tertiary);
+    position: relative;
+}
+
+.empty-state::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80px;
+    height: 80px;
+    background: color-mix(in srgb, var(--text-tertiary) 5%);
+    border-radius: 50%;
+    z-index: -1;
+}
+
+.empty-state .icon {
+    font-size: 48px;
+    margin-bottom: var(--spacing-md);
+    opacity: 0.7;
+    filter: grayscale(0.3);
+}
+
+.empty-state .message {
+    font-size: var(--font-size-md);
+    line-height: 1.5;
+    font-weight: 500;
+}
+
+.empty-state .sub-message {
+    font-size: var(--font-size-sm);
+    opacity: 0.7;
+    margin-top: var(--spacing-xs);
+}
+
+/* Enhanced Semantic Search Results */
+.semantic-results {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
+}
+
+.semantic-result-item {
+    border: 1px solid color-mix(in srgb, var(--border) 50%);
+    border-radius: var(--border-radius-lg);
+    padding: var(--spacing-lg);
+    background: var(--surface-elevated);
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.semantic-result-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(to right, var(--primary), color-mix(in srgb, var(--primary) 30%));
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.semantic-result-item:hover {
+    border-color: var(--primary);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+.semantic-result-item:hover::before {
+    opacity: 1;
+}
+
+.semantic-result-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: var(--spacing-md);
+    gap: var(--spacing-md);
+}
+
+.file-info {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-md);
+    flex: 1;
+}
+
+.file-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.confidence-badge {
+    background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 70%));
+    color: white;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 40%);
+}
+
+.function-info {
+    margin-bottom: var(--spacing-md);
+    padding: var(--spacing-sm);
+    background: color-mix(in srgb, var(--primary) 5%);
+    border-radius: var(--border-radius);
+    border-left: 3px solid var(--primary);
+}
+
+.function-info strong {
+    color: var(--primary);
+    font-weight: 700;
+}
+
+.code-snippet-preview {
+    margin: var(--spacing-md) 0;
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+.snippet-header {
+    font-size: var(--font-size-xs);
+    font-weight: 700;
+    margin-bottom: var(--spacing-sm);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.snippet-header::before {
+    content: '📄';
+    font-size: 14px;
+}
+
+.code-snippet {
+    background: var(--surface);
+    padding: var(--spacing-md);
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+    overflow-x: auto;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+}
+
+.action-buttons {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-top: var(--spacing-lg);
+    flex-wrap: wrap;
+}
+
+.open-at-line, .open-file-btn {
+    background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 70%));
+    border: none;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    text-decoration: none;
+}
+
+.open-at-line:hover, .open-file-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--primary) 40%);
+}
+
+/* Enhanced Code Blocks */
+.code-block-container {
+    margin: var(--spacing-lg) 0;
+    border: 1px solid var(--border);
+    border-radius: var(--border-radius-lg);
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.code-header {
+    background: linear-gradient(135deg, var(--surface-elevated), color-mix(in srgb, var(--primary) 5%));
+    padding: var(--spacing-md);
+    font-size: var(--font-size-xs);
+    font-family: var(--vscode-editor-font-family);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.code-block {
+    margin: 0;
+    padding: var(--spacing-lg);
+    background: var(--surface);
+    font-family: var(--vscode-editor-font-family);
+    font-size: var(--font-size-sm);
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre;
+}
+
+/* Modern Analysis Results */
+.analysis-result {
+    padding: var(--spacing-lg);
+    border-radius: var(--border-radius-lg);
+    margin-bottom: var(--spacing-lg);
+    font-size: var(--font-size-md);
+    line-height: 1.6;
+    position: relative;
+    overflow: hidden;
+}
+
+.analysis-result.info {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 8%), color-mix(in srgb, var(--primary) 4%));
+    border-left: 4px solid var(--primary);
+}
+
+.analysis-result.warning {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--vscode-inputValidation-warningBorder) 8%), color-mix(in srgb, var(--vscode-inputValidation-warningBorder) 4%));
+    border-left: 4px solid var(--vscode-inputValidation-warningBorder);
+}
+
+.analysis-result.error {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--vscode-inputValidation-errorBorder) 8%), color-mix(in srgb, var(--vscode-inputValidation-errorBorder) 4%));
+    border-left: 4px solid var(--vscode-inputValidation-errorBorder);
+}
+
+/* Smooth Animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.file-item, .semantic-result-item, .analysis-result {
+    animation: fadeInUp 0.5s ease-out;
+}
+
+/* Scrollbar Styling */
+.results-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.results-content::-webkit-scrollbar-track {
+    background: var(--surface);
+}
+
+.results-content::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--text-tertiary) 30%);
+    border-radius: 3px;
+}
+
+.results-content::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--text-tertiary) 50%);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .semantic-result-header {
+        flex-direction: column;
+        gap: var(--spacing-sm);
+    }
+    
+    .file-info {
+        flex-direction: column;
+        gap: var(--spacing-sm);
+    }
+    
+    .confidence-badge {
+        align-self: flex-start;
+    }
+    
+    .action-buttons {
+        flex-direction: column;
+    }
+    
+    .file-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--spacing-md);
+        text-align: left;
+    }
+    
+    .file-actions {
+        align-self: stretch;
+        justify-content: flex-end;
+    }
+    
+    .file-action {
+        flex: 1;
+        justify-content: center;
+    }
+}
+
+/* Loading States */
+.loading-shimmer {
+    background: linear-gradient(90deg, var(--surface) 25%, color-mix(in srgb, var(--surface) 90%) 50%, var(--surface) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: -200% 0;
+    }
+    100% {
+        background-position: 200% 0;
+    }
+}
     </style>
 </head>
 <body>
@@ -854,24 +1366,23 @@
                         </div>
                     </div>
 
-                    <div class="section">
-                        <div class="section-header">
-                            <div class="section-title">Search Using Natural Language</div>
-                            <div class="section-description">Find code by meaning and context using AI</div>
-                        </div>
-                        <div class="input-group">
-                            <label class="input-label">Describe what you need</label>
-                            <input id="semantic-search-query" class="input" placeholder="e.g., 'user authentication function' or 'file upload handler'">
-                        </div>
-                        <div class="btn-group">
-                            <button id="semantic-search-run" class="btn primary">
-                                <span class="btn-icon">🎯</span>
-                                Semantic Search
-                            </button>
-                            <span id="semantic-search-spinner" class="spinner hidden"></span>
-                        </div>
-                    </div>
-
+                   <div class="section">
+    <div class="section-header">
+        <div class="section-title">Search Using Natural Language</div>
+        <div class="section-description">Describe what a function or code section does, and AI will find matching code</div>
+    </div>
+    <div class="input-group">
+        <label class="input-label">Describe what the code should do</label>
+        <input id="semantic-search-query" class="input" placeholder="e.g., 'function that sorts arrays' or 'code that handles user login'">
+    </div>
+    <div class="btn-group">
+        <button id="semantic-search-run" class="btn primary">
+            <span class="btn-icon">🎯</span>
+            Find Matching Code
+        </button>
+        <span id="semantic-search-spinner" class="spinner hidden"></span>
+    </div>
+</div>
                     <!-- Results Panel -->
                     <div id="search-results" class="results-container">
                         <div class="results-header">

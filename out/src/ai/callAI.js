@@ -39,11 +39,11 @@ exports.checkAIHealth = checkAIHealth;
 exports.callAIMock = callAIMock;
 exports.generateEmbeddingMock = generateEmbeddingMock;
 async function callAI(prompt) {
-    try {
-        console.log('Sending request to AI server...');
-        console.log('Prompt:', prompt.substring(0, 100) + '...');
-        const http = await Promise.resolve().then(() => __importStar(require('http')));
-        return new Promise((resolve) => {
+    const http = await Promise.resolve().then(() => __importStar(require('http')));
+    return new Promise((resolve, reject) => {
+        try {
+            console.log('Sending request to AI server...');
+            console.log('Prompt preview:', (prompt || '').substring(0, 200).replace(/\n/g, ' '));
             const requestData = JSON.stringify({ prompt });
             const options = {
                 hostname: 'localhost',
@@ -54,6 +54,7 @@ async function callAI(prompt) {
                     'Content-Type': 'application/json',
                     'Content-Length': Buffer.byteLength(requestData),
                 },
+                timeout: 30000,
             };
             const req = http.request(options, (res) => {
                 let data = '';
@@ -62,7 +63,10 @@ async function callAI(prompt) {
                 });
                 res.on('end', () => {
                     try {
-                        const parsedData = JSON.parse(data);
+                        if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+                            return reject(new Error(`AI server HTTP ${res.statusCode}: ${res.statusMessage || ''} - ${data}`));
+                        }
+                        const parsedData = JSON.parse(data || '{}');
                         console.log('AI server response received');
                         const generated = parsedData.generated_text ?? parsedData.generated_code ?? null;
                         if (typeof generated === 'string') {
@@ -70,49 +74,39 @@ async function callAI(prompt) {
                             if (generatedCode.startsWith(prompt)) {
                                 generatedCode = generatedCode.substring(prompt.length).trim();
                             }
-                            resolve(generatedCode);
+                            return resolve(generatedCode);
                         }
-                        else if (parsedData.error) {
-                            resolve(`AI Server Error: ${parsedData.error}`);
+                        if (parsedData.error) {
+                            return reject(new Error(`AI Server Error: ${parsedData.error}`));
                         }
-                        else {
-                            console.warn('Unexpected response format from AI server:', parsedData);
-                            resolve(JSON.stringify(parsedData, null, 2));
-                        }
+                        return reject(new Error(`Unexpected response format from AI server: ${JSON.stringify(parsedData)}`));
                     }
                     catch (parseError) {
-                        resolve(`Error parsing AI response: ${parseError}\nRaw response: ${data}`);
+                        return reject(new Error(`Error parsing AI response: ${String(parseError)}\nRaw response: ${data}`));
                     }
                 });
             });
             req.on('error', (error) => {
                 console.error('Request error:', error);
-                if (error.code === 'ECONNREFUSED') {
-                    resolve('ERROR: Connection refused. Is your Python AI server (deepseek_api.py) running on http://localhost:8000? Run e.g.:\n' +
-                        'python -m uvicorn deepseek_api:app --host 0.0.0.0 --port 8000 --reload');
-                }
-                else {
-                    resolve(`ERROR: ${error.message || 'Unknown error occurred'}`);
-                }
+                return reject(error);
             });
-            req.setTimeout(30000, () => {
+            req.on('timeout', () => {
                 req.destroy();
-                resolve('ERROR: Request timeout after 30 seconds. The AI server might be busy loading the model.');
+                return reject(new Error('Request timeout after 30 seconds. The AI server might be busy loading the model.'));
             });
             req.write(requestData);
             req.end();
-        });
-    }
-    catch (error) {
-        console.error('AI Call Error:', error);
-        return `ERROR: ${error.message || 'Unknown error occurred'}`;
-    }
+        }
+        catch (err) {
+            return reject(err);
+        }
+    });
 }
 async function generateEmbedding(text) {
-    try {
-        console.log('Generating embedding for text:', text.substring(0, 50) + '...');
-        const http = await Promise.resolve().then(() => __importStar(require('http')));
-        return new Promise((resolve) => {
+    const http = await Promise.resolve().then(() => __importStar(require('http')));
+    return new Promise((resolve, reject) => {
+        try {
+            console.log('Generating embedding for text preview:', (text || '').substring(0, 120).replace(/\n/g, ' '));
             const requestData = JSON.stringify({ text });
             const options = {
                 hostname: 'localhost',
@@ -123,6 +117,7 @@ async function generateEmbedding(text) {
                     'Content-Type': 'application/json',
                     'Content-Length': Buffer.byteLength(requestData),
                 },
+                timeout: 30000,
             };
             const req = http.request(options, (res) => {
                 let data = '';
@@ -131,44 +126,39 @@ async function generateEmbedding(text) {
                 });
                 res.on('end', () => {
                     try {
-                        const parsedData = JSON.parse(data);
+                        if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+                            return reject(new Error(`Embedding server HTTP ${res.statusCode}: ${res.statusMessage || ''} - ${data}`));
+                        }
+                        const parsedData = JSON.parse(data || '{}');
                         console.log('Embedding response received');
                         if (parsedData.embedding && Array.isArray(parsedData.embedding)) {
-                            resolve(parsedData.embedding);
+                            return resolve(parsedData.embedding);
                         }
-                        else if (parsedData.error) {
-                            resolve(`Embedding Error: ${parsedData.error}`);
+                        if (parsedData.error) {
+                            return reject(new Error(`Embedding Error: ${parsedData.error}`));
                         }
-                        else {
-                            resolve(`Unexpected embedding response format: ${JSON.stringify(parsedData)}`);
-                        }
+                        return reject(new Error(`Unexpected embedding response format: ${JSON.stringify(parsedData)}`));
                     }
                     catch (parseError) {
-                        resolve(`Error parsing embedding response: ${parseError}`);
+                        return reject(new Error(`Error parsing embedding response: ${String(parseError)}\nRaw response: ${data}`));
                     }
                 });
             });
             req.on('error', (error) => {
                 console.error('Embedding request error:', error);
-                if (error.code === 'ECONNREFUSED') {
-                    resolve('ERROR: Connection refused for embedding service.');
-                }
-                else {
-                    resolve(`ERROR: ${error.message || 'Unknown error occurred'}`);
-                }
+                return reject(error);
             });
-            req.setTimeout(30000, () => {
+            req.on('timeout', () => {
                 req.destroy();
-                resolve('ERROR: Embedding request timeout after 30 seconds.');
+                return reject(new Error('Embedding request timeout after 30 seconds.'));
             });
             req.write(requestData);
             req.end();
-        });
-    }
-    catch (error) {
-        console.error('Embedding Call Error:', error);
-        return `ERROR: ${error.message || 'Unknown error occurred'}`;
-    }
+        }
+        catch (err) {
+            return reject(err);
+        }
+    });
 }
 async function checkAIHealth() {
     try {
@@ -188,25 +178,28 @@ async function checkAIHealth() {
                 });
                 res.on('end', () => {
                     try {
-                        const parsedData = JSON.parse(data);
+                        if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+                            return resolve(false);
+                        }
+                        const parsedData = JSON.parse(data || '{}');
                         const status = parsedData.status ?? '';
                         const modelLoaded = parsedData.model_loaded ?? parsedData.modelLoaded ?? false;
-                        resolve(status === 'ok' ||
+                        const healthy = modelLoaded === true ||
                             status === 'healthy' ||
-                            status === 'mock_mode' ||
-                            modelLoaded === true);
+                            status === 'ok';
+                        return resolve(Boolean(healthy));
                     }
                     catch {
-                        resolve(false);
+                        return resolve(false);
                     }
                 });
             });
             req.on('error', () => {
-                resolve(false);
+                return resolve(false);
             });
             req.on('timeout', () => {
                 req.destroy();
-                resolve(false);
+                return resolve(false);
             });
             req.end();
         });

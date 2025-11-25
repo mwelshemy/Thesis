@@ -26,6 +26,7 @@
     "theme": "dark"
   },
   "activationEvents": [
+    "*",
     "onView:vsCodeAISidebar"
   ],
   "main": "./out/extension.js",
@@ -50,14 +51,8 @@
     },
     "commands": [
       {
-        "command": "vs-code-ai-extension.showSidebar",
-        "title": "Show AI Assistant",
-        "category": "VS AI",
-        "icon": "$(search)"
-      },
-      {
-        "command": "vs-code-ai-extension.chat",
-        "title": "AI Chat: Ask About Code",
+        "command": "vs-code-ai-extension.testAI",
+        "title": "Test AI Connection",
         "category": "VS AI"
       },
       {
@@ -68,6 +63,17 @@
       {
         "command": "vs-code-ai-extension.findBugs",
         "title": "Find Bugs",
+        "category": "VS AI"
+      },
+      {
+        "command": "vs-code-ai-extension.showSidebar",
+        "title": "Show AI Assistant",
+        "category": "VS AI",
+        "icon": "$(search)"
+      },
+      {
+        "command": "vs-code-ai-extension.chat",
+        "title": "AI Chat: Ask About Code",
         "category": "VS AI"
       },
       {

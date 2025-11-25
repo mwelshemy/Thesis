@@ -1,4 +1,3 @@
-
 (function() {
     const vscode = acquireVsCodeApi();
     const state = vscode.getState() || {
@@ -36,6 +35,166 @@
                 fileSelector.value = state.selectedFile;
             }
         }
+    }
+
+    // Add this function to sidebar-script.js
+    function formatFunctionSearchResults(data) {
+        let html = '';
+        
+        if (data.summary) {
+            html += '<div class="analysis-summary">' + escapeHtml(data.summary) + '</div>';
+        }
+        
+        if (data.query) {
+            html += '<div class="analysis-summary" style="background: var(--vscode-textBlockQuote-background); margin-bottom: 16px;">' +
+                   '<strong>Your Query:</strong> ' + escapeHtml(data.query) + 
+                   '</div>';
+        }
+        
+        if (data.results && data.results.length > 0) {
+            html += '<div class="function-results">';
+            data.results.forEach((result, index) => {
+                const escapedFilePath = escapeHtml(result.filePath);
+                const escapedFileName = escapeHtml(result.fileName);
+                const language = result.language || 'unknown';
+                const languageIcon = getLanguageIcon(language);
+                const score = result.relevanceScore ?? result.confidence;
+                const confidence = typeof score === 'number' ? Math.round(score * 100) + '% match' : (score || 'High relevance');
+                const functionType = result.functionType || 'function';
+                
+                html += '<div class="function-result-item">' +
+                    '<div class="function-result-header">' +
+                    '<div class="file-info">' +
+                    '<div class="file-icon" title="' + language + '">' + languageIcon + '</div>' +
+                    '<div class="file-details">' +
+                    '<div class="file-name" title="' + escapedFileName + '">' + escapedFileName + '</div>' +
+                    '<div class="file-path" title="' + escapedFilePath + '">' + escapedFilePath + '</div>' +
+                    '</div>' +
+                    '</div>' +
+                    '<div class="confidence-badge">' + confidence + '</div>' +
+                    '</div>' +
+                    '<div class="function-details">' +
+                    '<div class="function-name"><strong>' + escapeHtml(functionType) + ':</strong> <code>' + escapeHtml(result.functionName) + '</code></div>' +
+                    '</div>';
+                
+                if (result.explanation) {
+                    html += '<div class="analysis-summary" style="margin-bottom: 12px; font-size: 12px; background: var(--vscode-textBlockQuote-background);">' +
+                           '<strong>Why it matches:</strong> ' + escapeHtml(result.explanation) +
+                           '</div>';
+                }
+                
+                if (result.codeSnippet) {
+                    html += '<div class="code-snippet-preview">' +
+                        '<div class="snippet-header">Function Code:</div>' +
+                        '<pre class="code-snippet"><code>' + escapeHtml(result.codeSnippet) + '</code></pre>' +
+                        '</div>';
+                }
+                
+                html += '<div class="action-buttons">' +
+                    '<button class="btn primary open-at-line code-snippet-link" ' +
+                    'data-file-path="' + escapedFilePath + '" ' +
+                    'data-line-number="' + result.lineNumber + '">' +
+                    '📝 Open Function at Line ' + result.lineNumber +
+                    '</button>' +
+                    '<button class="btn open-file-btn" data-file-path="' + escapedFilePath + '">📂 Open File</button>' +
+                    '</div>' +
+                    '</div>';
+            });
+            html += '</div>';
+        } else {
+            html += '<div class="empty-state"><div class="icon">🔍</div><div class="message">No functions found matching your description. Try using different words to describe what the function should do.</div></div>';
+        }
+        
+        return html;
+    }
+
+    // Unified extension message handler (single definition)
+    function handleExtensionMessage(msg) {
+        console.log('Received message:', msg);
+
+        // Hide spinners and enable buttons
+        document.querySelectorAll('.spinner').forEach(spinner => {
+            spinner.classList.add('hidden');
+        });
+        document.querySelectorAll('.btn').forEach(btn => {
+            btn.disabled = false;
+        });
+
+        if (msg.type === 'clearChat') {
+            state.chatHistory = [];
+            vscode.setState(state);
+            renderChatHistory();
+            return;
+        }
+
+        if (msg.type === 'aiOutput') {
+            const title = msg.title || '';
+            const content = msg.content;
+            const source = msg.source || 'command';
+            const action = msg.action || '';
+            
+            state.lastResults = state.lastResults || {};
+            state.lastResults[title] = content;
+            vscode.setState(state);
+
+            // Handle function search results specifically
+            if (content && content.type === 'functionSearchResults') {
+                renderFunctionSearchResults('search-results', content);
+                setActivePanel('search');
+                return;
+            }
+
+            // Route based on the specific action/command that generated the output
+            routeToCorrectPanel(msg, title, content, action);
+        } else if (msg.type === 'previewData') {
+            const combined = 'Original:\n\n' + msg.original + '\n\n== Refactored ==\n\n' + msg.modified;
+            renderResults('analyze-results', 'Code Preview', combined);
+            setActivePanel('analyze');
+        } else if (msg.type === 'projectFiles') {
+            state.projectFiles = msg.files || [];
+            vscode.setState(state);
+            updateFileSelector(state.projectFiles);
+        }
+    }
+
+    // Add this new rendering function
+    function renderFunctionSearchResults(containerId, data) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        
+        const resultsContent = container.querySelector('.results-content');
+        const resultsTitle = container.querySelector('.results-title');
+        
+        if (resultsTitle) {
+            resultsTitle.textContent = data.title || 'Function Search Results';
+        }
+
+        if (!resultsContent) return;
+
+        const formattedContent = formatFunctionSearchResults(data);
+        resultsContent.innerHTML = formattedContent;
+
+        // Add click handlers for open buttons
+        resultsContent.querySelectorAll('.open-file-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const filePath = btn.getAttribute('data-file-path');
+                vscode.postMessage({ command: 'openFile', path: filePath });
+            });
+        });
+
+        resultsContent.querySelectorAll('.open-at-line').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                const filePath = btn.getAttribute('data-file-path');
+                const lineNumber = btn.getAttribute('data-line-number');
+                vscode.postMessage({ 
+                    command: 'openFileAtLine', 
+                    path: filePath, 
+                    line: parseInt(lineNumber) 
+                });
+            });
+        });
     }
 
     function setupEventListeners() {
@@ -107,12 +266,14 @@
         if (!fileSelector) return undefined;
         
         const selectedValue = fileSelector.value;
+        // Keep previous behavior: empty string => auto-detect current file
         if (selectedValue === 'project') {
             return 'project';
         }
         if (!selectedValue) {
             return undefined;
         }
+        // Return the selected file path
         return selectedValue;
     }
 
@@ -171,13 +332,14 @@
                     showNotification('Please describe what code you\'re looking for', 'warning');
                     return;
                 }
+                // Use the semantic search action and pass the query payload
                 sendMessage('semanticSearch', { query });
             });
         }
 
         // Copy buttons
         document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('copy-btn')) {
+            if (e.target.classList && e.target.classList.contains('copy-btn')) {
                 const container = e.target.closest('.results-container');
                 if (container) {
                     const content = container.querySelector('.results-content');
@@ -195,27 +357,17 @@
             }
         });
 
-        // File open handlers
+        // Code snippet click handlers
         document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('file-action') || e.target.classList.contains('open-file-btn')) {
-                e.preventDefault();
-                const filePath = e.target.getAttribute('data-file-path');
-                if (filePath) {
-                    vscode.postMessage({ command: 'openFile', path: filePath });
-                }
-            }
-            
-            if (e.target.classList.contains('open-at-line')) {
+            if (e.target.classList && e.target.classList.contains('code-snippet-link')) {
                 e.preventDefault();
                 const filePath = e.target.getAttribute('data-file-path');
                 const lineNumber = e.target.getAttribute('data-line-number');
-                if (filePath && lineNumber) {
-                    vscode.postMessage({ 
-                        command: 'openFileAtLine', 
-                        path: filePath, 
-                        line: parseInt(lineNumber) 
-                    });
-                }
+                vscode.postMessage({ 
+                    command: 'openFileAtLine', 
+                    path: filePath, 
+                    line: parseInt(lineNumber) 
+                });
             }
         });
     }
@@ -285,7 +437,7 @@
         });
         
         if (state.chatHistory.length === 0) {
-            addMessage('system', '<strong>Welcome to CodeSense!</strong><br>I can help you analyze code, find issues, and answer questions about your project.');
+            addMessage('system', '<strong>Welcome to VS AI Assistant!</strong><br>I can help you analyze code, find issues, and answer questions about your project.');
         }
     }
 
@@ -304,9 +456,9 @@
         if (role === 'user') {
             messageHeader.innerHTML = '<span class="message-icon">👤</span><span>You</span>';
         } else if (role === 'assistant') {
-            messageHeader.innerHTML = '<span class="message-icon">✨</span><span>CodeSense AI</span>';
+            messageHeader.innerHTML = '<span class="message-icon">🤖</span><span>AI Assistant</span>';
         } else {
-            messageHeader.innerHTML = '<span class="message-icon">✨</span><span>CodeSense AI</span>';
+            messageHeader.innerHTML = '<span class="message-icon">🤖</span><span>VS AI Assistant</span>';
         }
         
         const messageContent = document.createElement('div');
@@ -329,15 +481,10 @@
             return formatObjectContent(content);
         }
 
-        // Check if this is a search result output with the format you showed
-        if (content.includes('Found') && content.includes('files in') && content.includes('📘')) {
-            return formatSearchResults(content);
-        }
-
         // Handle markdown formatting
         let formatted = escapeHtml(content);
 
-        // Process code blocks
+        // Process code blocks first (before other formatting)
         formatted = formatted.replace(/```(\w+)?\n([\s\S]*?)```/g, function(match, lang, code) {
             const language = lang || 'text';
             return '<div class="code-block-container"><div class="code-header">' + 
@@ -374,105 +521,6 @@
         }
 
         return formatted;
-    }
-
-    // NEW FUNCTION: Parse search results from the text format you showed
-    function formatSearchResults(content) {
-        const lines = content.split('\n');
-        let html = '';
-        let currentFile = null;
-        let fileCount = 0;
-
-        html += '<div class="search-results-summary">';
-        
-        for (const line of lines) {
-            const trimmedLine = line.trim();
-            
-            // Detect file count line
-            if (trimmedLine.startsWith('Found') && trimmedLine.includes('files in')) {
-                html += '<div class="analysis-summary">' + escapeHtml(trimmedLine) + '</div>';
-                continue;
-            }
-            
-            // Detect file entry (starts with emoji)
-            if (trimmedLine.match(/^[📘📙🐍☕🎨🌐📝📋📄]/)) {
-                // If we have a previous file, close it
-                if (currentFile) {
-                    html += formatFileItem(currentFile);
-                    fileCount++;
-                }
-                
-                // Start new file
-                currentFile = {
-                    icon: trimmedLine.charAt(0),
-                    name: '',
-                    path: '',
-                    language: '',
-                    lines: ''
-                };
-                
-                // Extract file name (text after emoji)
-                const nameMatch = trimmedLine.substring(1).trim();
-                if (nameMatch) {
-                    currentFile.name = nameMatch;
-                }
-            }
-            // Detect file path line
-            else if (trimmedLine.includes(':\\') || trimmedLine.includes('src/') || trimmedLine.includes('src\\')) {
-                if (currentFile) {
-                    currentFile.path = trimmedLine;
-                    // Extract language from path or context
-                    if (trimmedLine.includes('.ts')) currentFile.language = 'typescript';
-                    else if (trimmedLine.includes('.js')) currentFile.language = 'javascript';
-                    else if (trimmedLine.includes('.py')) currentFile.language = 'python';
-                    else if (trimmedLine.includes('.java')) currentFile.language = 'java';
-                    else if (trimmedLine.includes('.css')) currentFile.language = 'css';
-                    else if (trimmedLine.includes('.html')) currentFile.language = 'html';
-                    else if (trimmedLine.includes('.md')) currentFile.language = 'markdown';
-                }
-            }
-            // Detect file metadata line (lines count)
-            else if (trimmedLine.includes('lines') && currentFile) {
-                currentFile.lines = trimmedLine;
-            }
-        }
-        
-        // Don't forget the last file
-        if (currentFile) {
-            html += formatFileItem(currentFile);
-            fileCount++;
-        }
-        
-        html += '</div>';
-        
-        if (fileCount === 0) {
-            return '<div class="empty-state"><div class="icon">🔍</div><div class="message">No files found matching your search</div></div>';
-        }
-        
-        return html;
-    }
-
-    // NEW FUNCTION: Format individual file item for search results
-    function formatFileItem(file) {
-        const escapedPath = escapeHtml(file.path);
-        const escapedName = escapeHtml(file.name);
-        const language = file.language || 'unknown';
-        const languageIcon = getLanguageIcon(language);
-        const lineCount = file.lines ? file.lines.replace(/[^\d]/g, '') : '?';
-        
-        return `
-            <div class="file-item" data-file-path="${escapedPath}">
-                <div class="file-icon" title="${language}">${languageIcon}</div>
-                <div class="file-content">
-                    <div class="file-name" title="${escapedName}">${escapedName}</div>
-                    <div class="file-path" title="${escapedPath}">${escapedPath}</div>
-                    <div class="file-meta">${language} • ${lineCount} lines</div>
-                </div>
-                <div class="file-actions">
-                    <button class="file-action open-file" data-file-path="${escapedPath}" title="Open file">📂</button>
-                </div>
-            </div>
-        `;
     }
 
     function formatObjectContent(obj) {
@@ -541,7 +589,8 @@
                 const escapedFileName = escapeHtml(result.fileName);
                 const language = result.language || 'unknown';
                 const languageIcon = getLanguageIcon(language);
-                const confidence = result.confidence ? Math.round(result.confidence * 100) + '% match' : 'High relevance';
+                const score = result.relevanceScore ?? result.confidence;
+                const confidence = typeof score === 'number' ? Math.round(score * 100) + '% match' : (score || 'High relevance');
                 
                 html += '<div class="semantic-result-item">' +
                     '<div class="semantic-result-header">' +
@@ -606,6 +655,16 @@
                    '</div>';
         }
         
+        // Show intent analysis if available
+        if (data.intent) {
+            html += '<div class="analysis-summary" style="background: var(--vscode-badge-background); margin-bottom: 16px; font-size: 12px;">' +
+                   '<strong>AI Understanding:</strong> ' +
+                   'Searching for ' + escapeHtml(data.intent.searchType) + ' in ' + 
+                   escapeHtml(data.intent.language) + ' code' +
+                   (data.intent.concepts && data.intent.concepts.length > 0 ? ' • Concepts: ' + escapeHtml(data.intent.concepts.join(', ')) : '') +
+                   '</div>';
+        }
+        
         if (data.results && data.results.length > 0) {
             html += '<div class="semantic-results">';
             data.results.forEach((result, index) => {
@@ -613,7 +672,8 @@
                 const escapedFileName = escapeHtml(result.fileName);
                 const language = result.language || 'unknown';
                 const languageIcon = getLanguageIcon(language);
-                const confidence = result.relevanceScore ? Math.round(result.relevanceScore * 100) + '% relevant' : 'Relevant match';
+                const score = result.relevanceScore ?? result.confidence;
+                const confidence = typeof score === 'number' ? Math.round(score * 100) + '% relevant' : (score || 'Relevant match');
                 const functionName = result.functionName || 'main';
                 
                 html += '<div class="semantic-result-item">' +
@@ -684,7 +744,7 @@
             'json': '📋',
             'xml': '📄'
         };
-        return languageIcons[language.toLowerCase()] || '📄';
+        return languageIcons[(language || '').toLowerCase()] || '📄';
     }
 
     function sendMessage(action, payload = {}) {
@@ -731,51 +791,10 @@
         });
     }
 
-    function handleExtensionMessage(msg) {
-        console.log('Received message:', msg);
-
-        // Hide spinners and enable buttons
-        document.querySelectorAll('.spinner').forEach(spinner => {
-            spinner.classList.add('hidden');
-        });
-        document.querySelectorAll('.btn').forEach(btn => {
-            btn.disabled = false;
-        });
-
-        if (msg.type === 'clearChat') {
-            state.chatHistory = [];
-            vscode.setState(state);
-            renderChatHistory();
-            return;
-        }
-
-        if (msg.type === 'aiOutput') {
-            const title = msg.title || '';
-            const content = msg.content;
-            const source = msg.source || 'command';
-            const action = msg.action || '';
-            
-            state.lastResults = state.lastResults || {};
-            state.lastResults[title] = content;
-            vscode.setState(state);
-
-            // Route based on the specific action/command that generated the output
-            routeToCorrectPanel(msg, title, content, action);
-        } else if (msg.type === 'previewData') {
-            const combined = 'Original:\n\n' + msg.original + '\n\n== Refactored ==\n\n' + msg.modified;
-            renderResults('analyze-results', 'Code Preview', combined);
-            setActivePanel('analyze');
-        } else if (msg.type === 'projectFiles') {
-            state.projectFiles = msg.files || [];
-            vscode.setState(state);
-            updateFileSelector(state.projectFiles);
-        }
-    }
-
     function routeToCorrectPanel(msg, title, content, action) {
         // Handle chat responses specifically
-        if (action === 'chat') {
-            addMessage('assistant', content);
+        if (action === 'chat' || (msg && msg.action === 'chat')) {
+            addMessage('assistant', (typeof content === 'string' ? content : JSON.stringify(content)));
             setActivePanel('chat');
             return;
         }
@@ -789,7 +808,13 @@
     }
 
     function handleStructuredContent(content, title, action) {
-        if (content.type === 'fileList') {
+        if (!content) {
+            renderResults('analyze-results', title, 'No content returned');
+            setActivePanel('analyze');
+            return;
+        }
+
+        if (content.type === 'fileList' || (content.files && Array.isArray(content.files))) {
             // Route file lists to search panel for search actions, analyze panel for analysis
             if (action === 'searchProject' || action === 'searchByLanguage' || 
                 action === 'codeUnderstandingSearch' || action === 'semanticSearch') {
@@ -804,6 +829,9 @@
             setActivePanel('search');
         } else if (content.type === 'codeUnderstandingResults') {
             renderCodeUnderstandingResults('search-results', content);
+            setActivePanel('search');
+        } else if (content.type === 'functionSearchResults') {
+            renderFunctionSearchResults('search-results', content);
             setActivePanel('search');
         } else {
             // Fallback to analyze panel for other object types
@@ -840,8 +868,8 @@
                 
             // Default fallback based on title/content analysis
             default:
-                const lowerTitle = title.toLowerCase();
-                const lowerContent = content.toLowerCase();
+                const lowerTitle = (title || '').toLowerCase();
+                const lowerContent = (typeof content === 'string' ? content.toLowerCase() : '');
                 
                 if (lowerTitle.includes('search') || lowerTitle.includes('result') || 
                     lowerContent.includes('search') || lowerContent.includes('found') ||
@@ -862,6 +890,8 @@
                 }
         }
     }
+
+    // Render and helper functions continued (unchanged)...
 
     function renderFileListResults(containerId, data) {
         const container = document.getElementById(containerId);
@@ -1167,7 +1197,7 @@
 
     function renderTextOutput(container, text, title) {
         const formattedContent = formatContent(text);
-        container.innerHTML = formattedContent;
+        container.innerHTML = '<div class="analysis-result info">' + formattedContent + '</div>';
     }
 
     function renderObjectOutput(container, data, title) {
@@ -1177,21 +1207,6 @@
         container.innerHTML = '<div class="analysis-result info">' +
             '<div class="result-content"><pre class="json-output">' + escapedJson + '</pre></div>' +
             '</div>';
-    }
-
-    function getLanguageIcon(language) {
-        const languageIcons = {
-            'typescript': '📘',
-            'javascript': '📙',
-            'python': '🐍',
-            'java': '☕',
-            'css': '🎨',
-            'html': '🌐',
-            'markdown': '📝',
-            'json': '📋',
-            'xml': '📄'
-        };
-        return languageIcons[language.toLowerCase()] || '📄';
     }
 
     function updateFileSelector(files) {
@@ -1204,7 +1219,7 @@
         }
         
         // Add project files to selector
-        files.slice(0, 50).forEach(file => {
+        files.slice(0, 50).forEach(file => { // Limit to 50 files to avoid performance issues
             const option = document.createElement('option');
             option.value = file.path;
             option.textContent = file.label + ' (' + file.path + ')';
