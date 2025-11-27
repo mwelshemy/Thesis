@@ -6,6 +6,26 @@
  * (e.g. resilientCallAI) can retry and apply backoff. Previously it resolved
  * error strings which prevented retry logic from working.
  */
+
+// Type definitions for API responses
+interface AIGenerationResponse {
+  generated_text?: string;
+  generated_code?: string;
+  error?: string;
+}
+
+interface AIEmbeddingResponse {
+  embedding?: number[];
+  error?: string;
+  note?: string;
+}
+
+interface AIHealthResponse {
+  status?: string;
+  model_loaded?: boolean;
+  modelLoaded?: boolean;
+}
+
 export async function callAI(prompt: string): Promise<string> {
   const http = await import('http');
 
@@ -41,7 +61,7 @@ export async function callAI(prompt: string): Promise<string> {
               return reject(new Error(`AI server HTTP ${res.statusCode}: ${res.statusMessage || ''} - ${data}`));
             }
 
-            const parsedData = JSON.parse(data || '{}');
+            const parsedData: AIGenerationResponse = JSON.parse(data || '{}');
             console.log('AI server response received');
 
             // Prefer generated_text, fallback to legacy generated_code
@@ -127,7 +147,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
               return reject(new Error(`Embedding server HTTP ${res.statusCode}: ${res.statusMessage || ''} - ${data}`));
             }
 
-            const parsedData = JSON.parse(data || '{}');
+            const parsedData: AIEmbeddingResponse = JSON.parse(data || '{}');
             console.log('Embedding response received');
 
             if (parsedData.embedding && Array.isArray(parsedData.embedding)) {
@@ -194,7 +214,7 @@ export async function checkAIHealth(): Promise<boolean> {
             if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
               return resolve(false);
             }
-            const parsedData = JSON.parse(data || '{}');
+            const parsedData: AIHealthResponse = JSON.parse(data || '{}');
             // Accept multiple possible health shapes for compatibility
             const status = parsedData.status ?? '';
             const modelLoaded = parsedData.model_loaded ?? parsedData.modelLoaded ?? false;

@@ -14,7 +14,9 @@ async function testAI() {
         body: JSON.stringify({ prompt })
       });
       const data = await response.json();
-      console.log(`Prompt:\n${prompt}\nGenerated:\n${data.generated_code}\n---`);
+      const responseData = data as { generated_code?: string; generated_text?: string };
+      const generated = responseData.generated_code || responseData.generated_text || 'No response';
+      console.log(`Prompt:\n${prompt}\nGenerated:\n${generated}\n---`);
     } catch (err) {
       console.error('Error querying backend:', err);
     }

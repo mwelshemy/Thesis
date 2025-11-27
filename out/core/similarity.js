@@ -1,10 +1,19 @@
 "use strict";
+/**
+ * Cosine similarity calculation for vector comparison
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.calculateCosineSimilarity = calculateCosineSimilarity;
 exports.findSimilarVectors = findSimilarVectors;
 function calculateCosineSimilarity(vecA, vecB) {
     if (vecA.length !== vecB.length) {
-        throw new Error('Vectors must have same dimensions');
+        console.warn(`Vector dimension mismatch: ${vecA.length} vs ${vecB.length}. Truncating/padding to match.`);
+        // Handle dimension mismatch by using the smaller dimension
+        const minLength = Math.min(vecA.length, vecB.length);
+        const truncatedA = vecA.slice(0, minLength);
+        const truncatedB = vecB.slice(0, minLength);
+        vecA = truncatedA;
+        vecB = truncatedB;
     }
     let dotProduct = 0;
     let magnitudeA = 0;
@@ -19,8 +28,12 @@ function calculateCosineSimilarity(vecA, vecB) {
     if (magnitudeA === 0 || magnitudeB === 0) {
         return 0;
     }
-    return dotProduct / (magnitudeA * magnitudeB);
+    const similarity = dotProduct / (magnitudeA * magnitudeB);
+    return similarity;
 }
+/**
+ * Find top-k most similar vectors
+ */
 function findSimilarVectors(queryVector, vectors, k = 5) {
     const similarities = vectors.map((vector, index) => ({
         index,

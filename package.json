@@ -29,7 +29,7 @@
     "*",
     "onView:vsCodeAISidebar"
   ],
-  "main": "./out/extension.js",
+  "main": "./out/src/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -116,14 +116,16 @@
     "publish": "vsce publish"
   },
   "devDependencies": {
-    "@types/vscode": "^1.82.0",
     "@types/node": "^18.0.0",
+    "@types/vscode": "^1.82.0",
     "typescript": "^5.0.0",
     "vsce": "^2.15.0"
   },
   "dependencies": {
     "@huggingface/inference": "^2.6.0",
-    "axios": "^1.4.0"
+    "axios": "^1.4.0",
+    "url-parse": "^1.5.10",
+    "whatwg-url": "^15.1.0"
   },
   "repository": {
     "type": "git",

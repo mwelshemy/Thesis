@@ -1,4 +1,12 @@
 "use strict";
+/**
+ * Calls the local Python AI server.
+ * Updated to match deepseek_api.py endpoints & response shapes.
+ *
+ * Important: this implementation throws on network/response errors so callers
+ * (e.g. resilientCallAI) can retry and apply backoff. Previously it resolved
+ * error strings which prevented retry logic from working.
+ */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     var desc = Object.getOwnPropertyDescriptor(m, k);
@@ -68,17 +76,21 @@ async function callAI(prompt) {
                         }
                         const parsedData = JSON.parse(data || '{}');
                         console.log('AI server response received');
+                        // Prefer generated_text, fallback to legacy generated_code
                         const generated = parsedData.generated_text ?? parsedData.generated_code ?? null;
                         if (typeof generated === 'string') {
                             let generatedCode = generated;
+                            // Remove the original prompt prefix if the server echoed it back
                             if (generatedCode.startsWith(prompt)) {
                                 generatedCode = generatedCode.substring(prompt.length).trim();
                             }
                             return resolve(generatedCode);
                         }
+                        // If server returned an explicit error field -> reject
                         if (parsedData.error) {
                             return reject(new Error(`AI Server Error: ${parsedData.error}`));
                         }
+                        // Unexpected format — reject so callers can retry or fall back
                         return reject(new Error(`Unexpected response format from AI server: ${JSON.stringify(parsedData)}`));
                     }
                     catch (parseError) {
@@ -102,6 +114,12 @@ async function callAI(prompt) {
         }
     });
 }
+/**
+ * Generate embeddings using the local Python AI server
+ * For semantic search functionality
+ *
+ * This function throws on network/response errors to make retry logic reliable.
+ */
 async function generateEmbedding(text) {
     const http = await Promise.resolve().then(() => __importStar(require('http')));
     return new Promise((resolve, reject) => {
@@ -160,6 +178,12 @@ async function generateEmbedding(text) {
         }
     });
 }
+/**
+ * Health check for the AI server
+ * Returns true only if server indicates models are ready (model_loaded === true) or healthy.
+ * This function resolves false for network issues instead of throwing, since callers may want to
+ * treat health check as non-fatal.
+ */
 async function checkAIHealth() {
     try {
         const http = await Promise.resolve().then(() => __importStar(require('http')));
@@ -182,8 +206,10 @@ async function checkAIHealth() {
                             return resolve(false);
                         }
                         const parsedData = JSON.parse(data || '{}');
+                        // Accept multiple possible health shapes for compatibility
                         const status = parsedData.status ?? '';
                         const modelLoaded = parsedData.model_loaded ?? parsedData.modelLoaded ?? false;
+                        // consider healthy only if model_loaded true or explicit healthy/status
                         const healthy = modelLoaded === true ||
                             status === 'healthy' ||
                             status === 'ok';
@@ -208,10 +234,17 @@ async function checkAIHealth() {
         return false;
     }
 }
+/**
+ * Mock version for testing. This remains unchanged.
+ */
 async function callAIMock(prompt) {
     return `MOCK RESPONSE: This is a mock AI response for: "${prompt.substring(0, 100)}..."\n\nIn production, this would call the actual Hugging Face API.`;
 }
+/**
+ * Mock embedding for testing
+ */
 async function generateEmbeddingMock() {
+    // Return a simple mock embedding
     return Array(768).fill(0).map((_, i) => Math.sin(i * 0.1) * 0.1);
 }
 //# sourceMappingURL=callAI.js.map

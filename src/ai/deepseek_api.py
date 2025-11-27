@@ -285,10 +285,6 @@ async def generate_embedding_alias(req: EmbeddingRequest):
 
 # If executed directly, run uvicorn to make debugging import errors easier.
 if __name__ == "__main__":
-    try:
-        import uvicorn  # type: ignore
-        logger.info("Starting uvicorn (deepseek_api) for debug mode")
-        uvicorn.run("src.ai.deepseek_api:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)), reload=True)
-    except Exception:
-        logger.exception("Failed to start uvicorn directly")
-        raise
+    import uvicorn
+    print("Starting DeepSeek API on http://localhost:8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000)

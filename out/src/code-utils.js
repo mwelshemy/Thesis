@@ -4,6 +4,9 @@ exports.extractCodeBlock = extractCodeBlock;
 exports.extractCodeSections = extractCodeSections;
 exports.extractSignificantCodeBlocks = extractSignificantCodeBlocks;
 exports.extractConcepts = extractConcepts;
+/**
+ * Extract a code block (function/class body or a reasonable snippet) given a start index.
+ */
 function extractCodeBlock(content, startIndex, language) {
     try {
         const bracketLanguages = ['javascript', 'typescript', 'java', 'cpp', 'c', 'cs', 'php', 'go', 'rust'];
@@ -56,9 +59,13 @@ function extractCodeBlock(content, startIndex, language) {
         }
     }
     catch (err) {
+        // best-effort fallback
     }
     return content.substring(startIndex, Math.min(startIndex + 500, content.length)).trim();
 }
+/**
+ * Extract code sections (functions, classes, or significant blocks) from a file content.
+ */
 function extractCodeSections(content, language) {
     const sections = [];
     try {
@@ -93,6 +100,7 @@ function extractCodeSections(content, language) {
                     sections.push({ name: match[1], code: codeBlock, type: 'class', lineNumber: startLine });
             }
         }
+        // If no functions/classes found, extract significant blocks
         if (sections.length === 0) {
             const significantBlocks = extractSignificantCodeBlocks(content, language);
             significantBlocks.forEach((b, i) => {
@@ -101,9 +109,13 @@ function extractCodeSections(content, language) {
         }
     }
     catch (err) {
+        // ignore
     }
     return sections;
 }
+/**
+ * Extract large/significant code blocks from content (used as fallback).
+ */
 function extractSignificantCodeBlocks(content, language) {
     const blocks = [];
     const lines = content.split('\n');
@@ -148,6 +160,9 @@ function extractSignificantCodeBlocks(content, language) {
     }
     return blocks.slice(0, 5);
 }
+/**
+ * Extract likely programming concepts / tokens from a natural language query.
+ */
 function extractConcepts(query) {
     if (!query || !query.trim())
         return [];

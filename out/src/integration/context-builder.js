@@ -1,11 +1,21 @@
 "use strict";
+/**
+ * REAL Context Builder for AI + Search Integration
+ * Enhanced with better context prioritization and real data handling
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildEnhancedPrompt = buildEnhancedPrompt;
 exports.buildSimpleContextPrompt = buildSimpleContextPrompt;
+/**
+ * Builds an enhanced prompt with relevant project context
+ */
 function buildEnhancedPrompt(basePrompt, selectedCode, searchResults, maxContextLength = 2000) {
     console.log(`🔄 Building enhanced prompt with ${searchResults.length} search results`);
+    // Filter and prioritize search results
     const relevantContext = prioritizeSearchResults(selectedCode, searchResults);
+    // Build context string within length limits
     const contextSnippets = buildContextSnippets(relevantContext, maxContextLength);
+    // Construct the full enhanced prompt
     const fullPrompt = constructFullPrompt(basePrompt, selectedCode, contextSnippets);
     return {
         basePrompt,
@@ -14,27 +24,37 @@ function buildEnhancedPrompt(basePrompt, selectedCode, searchResults, maxContext
         contextFileCount: contextSnippets.length,
     };
 }
+/**
+ * Prioritize search results based on relevance to selected code
+ */
 function prioritizeSearchResults(selectedCode, searchResults) {
     if (searchResults.length === 0) {
         return [];
     }
+    // Extract keywords and patterns from selected code
     const keywords = extractKeywords(selectedCode);
     const codeStructure = analyzeCodeStructure(selectedCode);
     console.log(`🔑 Extracted keywords: ${keywords.slice(0, 5).join(', ')}`);
     console.log(`🏗️ Code structure: ${codeStructure.type}`);
+    // Score each search result based on multiple relevance factors
     const scoredResults = searchResults.map((result) => ({
         result,
         score: calculateRelevanceScore(result, keywords, selectedCode, codeStructure),
     }));
+    // Sort by score (descending) and take top results
     const prioritized = scoredResults
         .sort((a, b) => b.score - a.score)
-        .slice(0, 6)
+        .slice(0, 6) // Top 6 most relevant
         .map((scored) => scored.result);
     console.log(`📊 Prioritized ${prioritized.length} most relevant files`);
     return prioritized;
 }
+/**
+ * Extract relevant keywords from code for better context matching
+ */
 function extractKeywords(code) {
     const keywords = new Set();
+    // Common programming patterns to look for
     const patterns = [
         /\b(function|class|interface|type|enum)\s+(\w+)/g,
         /\b(const|let|var)\s+(\w+)/g,
@@ -45,6 +65,7 @@ function extractKeywords(code) {
     patterns.forEach((pattern) => {
         let match;
         while ((match = pattern.exec(code)) !== null) {
+            // Capture group 2 for most patterns, group 3 for imports
             const keyword = match[2] || match[3];
             if (keyword && keyword.length > 2) {
                 keywords.add(keyword.toLowerCase());
@@ -53,6 +74,9 @@ function extractKeywords(code) {
     });
     return Array.from(keywords);
 }
+/**
+ * Analyze code structure to understand what type of code we're dealing with
+ */
 function analyzeCodeStructure(code) {
     const elements = [];
     let type = 'unknown';
@@ -81,35 +105,47 @@ function analyzeCodeStructure(code) {
     }
     return { type, elements };
 }
+/**
+ * Calculate relevance score for a search result
+ */
 function calculateRelevanceScore(result, keywords, selectedCode, codeStructure) {
     let score = 0;
     const fileName = result.fileName.toLowerCase();
     const content = result.content.toLowerCase();
     const selectedCodeLower = selectedCode.toLowerCase();
+    // 1. File name relevance (high weight)
     if (keywords.some((keyword) => fileName.includes(keyword))) {
         score += 4;
     }
+    // 2. Content relevance (medium weight)
     keywords.forEach((keyword) => {
         const occurrences = (content.match(new RegExp(keyword, 'g')) || []).length;
-        score += Math.min(occurrences * 1.5, 6);
+        score += Math.min(occurrences * 1.5, 6); // Cap at 6 per keyword
     });
+    // 3. Exact code matches (very high weight)
     if (content.includes(selectedCodeLower.substring(0, 100))) {
         score += 8;
     }
+    // 4. Same code structure type bonus
     if (codeStructure.type !== 'unknown') {
         if (content.includes(codeStructure.type)) {
             score += 2;
         }
     }
+    // 5. File type/language consistency
     if (selectedCode.includes('import') && result.fileName.endsWith('.ts')) {
         score += 1;
     }
+    // 6. Recent modification bonus (prioritize recently edited files)
     const daysSinceModification = (Date.now() - result.lastModified.getTime()) / (1000 * 60 * 60 * 24);
     if (daysSinceModification < 7) {
-        score += 1;
+        score += 1; // Bonus for files modified in the last week
     }
     return score;
 }
+/**
+ * Build context snippets from prioritized results within length limits
+ */
 function buildContextSnippets(results, maxLength) {
     const snippets = [];
     let currentLength = 0;
@@ -126,10 +162,15 @@ function buildContextSnippets(results, maxLength) {
     console.log(`📄 Built ${snippets.length} context snippets (${currentLength} chars)`);
     return snippets;
 }
+/**
+ * Format a single search result as a context snippet
+ */
 function formatContextSnippet(result) {
     const maxSnippetLength = 500;
     let contentSnippet = result.content;
+    // Truncate if too long, but try to end at a reasonable point
     if (contentSnippet.length > maxSnippetLength) {
+        // Try to find a good breaking point (end of line, semicolon, etc.)
         const breakPoints = ['.', ';', '\n', '}'];
         let breakIndex = maxSnippetLength;
         for (const point of breakPoints) {
@@ -148,6 +189,9 @@ function formatContextSnippet(result) {
 ${contentSnippet}
 ---`;
 }
+/**
+ * Construct the full enhanced prompt
+ */
 function constructFullPrompt(basePrompt, selectedCode, contextSnippets) {
     if (contextSnippets.length === 0) {
         return `${basePrompt}
@@ -174,6 +218,9 @@ ${selectedCode}
 ## Analysis Request:
 Please analyze the selected code above, considering the project context provided. Focus on how this code relates to or differs from similar patterns in the project.`;
 }
+/**
+ * Simple prompt builder for quick context (fallback)
+ */
 function buildSimpleContextPrompt(basePrompt, selectedCode, searchResults) {
     if (searchResults.length === 0) {
         return `${basePrompt}

@@ -1,5 +1,12 @@
 import * as vscode from 'vscode';
 import { callAI } from './ai/callAI';
+import { SidebarViewProvider } from './webviews/sidebar-view-provider';
+import { RefactorManager } from './refactoring/refactor-manager';
+import { runRetrievalPipeline, initializeEmbeddings, CodeSnippet } from '../core/pipeline';
+import { initializeEmbeddingStorage } from '../core/embeddings';
+import { initializeVectorStore, getVectorStoreStats, validateVectorStore, clearAllEmbeddings } from '../core/retrieve';
+import { calculateCosineSimilarity } from '../core/similarity';
+import { generateEmbedding } from './ai/callAI'; 
 import {
   buildSearchIndex,
   searchIndex,
@@ -8,18 +15,14 @@ import {
   initializeSearch,
   searchByLanguage,
 } from './search';
-import { SidebarViewProvider } from './webviews/sidebar-view-provider';
-import { RefactorManager } from './refactoring/refactor-manager';
 
 let sidebarProvider: SidebarViewProvider | undefined;
 
 /** Utilities */
 async function runWithProgress<T>(
   title: string,
-  // eslint-disable-next-line no-unused-vars
   task: (p: vscode.Progress<{ message?: string; increment?: number }>) => Promise<T>
 ) {
-  // Pass an explicit wrapper so the progress parameter is referenced and not reported as unused.
   return vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
@@ -35,6 +38,7 @@ function postToSidebar(title: string, content: any, action: string) {
         sidebarProvider.showAIAnalysis(title, content, action);
     }
 }
+
 /** Utility functions for file access */
 async function getAllProjectFiles(): Promise<vscode.Uri[]> {
   try {
@@ -336,7 +340,177 @@ Project Summary:`;
   }
 }
 
-/** New Command Handlers for Revamped UI */
+/** Pure RAG Search Commands */
+export async function handleSemanticSearchCommand(payload?: { query?: string }): Promise<void> {
+  try {
+    const query = payload?.query;
+    if (!query?.trim()) {
+      postToSidebar('Semantic Search', 'Please enter a search query.', 'semanticSearch');
+      return;
+    }
+
+    await runWithProgress('Searching with RAG...', async (progress) => {
+      progress.report({ message: 'Using pure semantic search...' });
+
+      // Use 10% similarity threshold for better recall during testing
+      const results = await runRetrievalPipeline(query, 15, 0.1);
+      
+      console.log(`RAG Search for "${query}": ${results.length} results`);
+      
+      if (results.length === 0) {
+        postToSidebar('Semantic Search', 
+          `No matches found for "${query}" (minimum 10% similarity)\n\nTry:\n• Using more specific terms\n• Describing the code purpose\n• Checking if embeddings were generated\n• Using function/class names directly`, 
+          'semanticSearch');
+        return;
+      }
+
+      const formattedResults = {
+        type: 'semanticSearchResults',
+        title: 'Semantic Search Results',
+        summary: `Found ${results.length} matches with ≥10% similarity for: "${query}"`,
+        query: query,
+        results: results.map((result, index) => ({
+          fileName: result.filename,
+          filePath: result.filepath,
+          language: result.language,
+          lineNumber: result.lineNumber,
+          confidence: `${Math.round((result.relevance || 0) * 100)}%`,
+          similarity: result.relevance?.toFixed(3),
+          codeSnippet: result.content,
+          preview: result.content.substring(0, 150) + '...'
+        }))
+      };
+      
+      postToSidebar('Semantic Search Results', formattedResults, 'semanticSearch');
+    });
+  } catch (err: any) {
+    console.error(`RAG Search failed:`, err);
+    postToSidebar('Semantic Search Error', 'RAG search failed: ' + String(err), 'semanticSearch');
+  }
+}
+
+export async function handleSearchProjectCommand(payload?: { query?: string }) {
+  try {
+    const q = payload?.query || '';
+    
+    console.log(`RAG Project Search: "${q}"`);
+    
+    // Use 10% similarity threshold for project search during testing
+    const results = await runRetrievalPipeline(q, 10, 0.1);
+    
+    console.log(`RAG Project Search found ${results.length} results for "${q}"`);
+    
+    if (results.length === 0) {
+      postToSidebar('Search Results', 
+        `No matches found for "${q}" (minimum 10% similarity)\n\nTry:\n• Using more specific search terms\n• Describing what the code does\n• Using exact function/class names\n• Checking if embeddings were generated for your project`, 
+        'searchProject');
+      return;
+    }
+
+    const formattedResults = {
+      type: 'semanticResults',
+      title: 'Semantic Search Results',
+      summary: `Found ${results.length} matches with ≥10% similarity for "${q}"`,
+      query: q,
+      snippets: results.map((r) => ({
+        fileName: r.filename,
+        filePath: r.filepath,
+        language: r.language,
+        lineNumber: r.lineNumber,
+        confidence: `${Math.round((r.relevance || 0) * 100)}%`,
+        similarity: r.relevance?.toFixed(3),
+        preview: r.content.substring(0, 150) + '...',
+        content: r.content
+      }))
+    };
+    
+    postToSidebar('Search Results', formattedResults, 'searchProject');
+  } catch (err: any) {
+    console.error(`RAG Project Search failed for "${payload?.query}":`, err);
+    postToSidebar('Search Error', 'Semantic search failed: ' + String(err), 'searchProject');
+  }
+}
+
+/** RAG Diagnostic Commands */
+export async function handleRAGDiagnosticsCommand(): Promise<void> {
+  try {
+    await runWithProgress('Checking RAG system...', async (progress) => {
+      progress.report({ message: 'Validating vector store...' });
+      
+      const stats = await getVectorStoreStats();
+      const validation = await validateVectorStore();
+      
+      const diagnostic = {
+        timestamp: new Date().toISOString(),
+        vectorStore: stats,
+        validation: validation,
+        workspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || 'No workspace',
+        similarityThreshold: '10% (0.1)'
+      };
+      
+      console.log('RAG Diagnostics:', diagnostic);
+      postToSidebar('RAG Diagnostics', diagnostic, 'ragDiagnostics');
+    });
+  } catch (err: any) {
+    console.error('RAG Diagnostics failed:', err);
+    postToSidebar('Diagnostic Error', 'Failed to check RAG system: ' + String(err), 'ragDiagnostics');
+  }
+}
+
+export async function handleRebuildRAGIndexCommand(): Promise<void> {
+  try {
+    await runWithProgress('Rebuilding RAG index...', async (progress) => {
+      progress.report({ message: 'Clearing existing embeddings...' });
+      await clearAllEmbeddings();
+      
+      progress.report({ message: 'Generating new embeddings...' });
+      await initializeEmbeddings();
+      
+      const stats = await getVectorStoreStats();
+      console.log('RAG Index Rebuilt:', stats);
+      postToSidebar('RAG Index Rebuilt', {
+        message: 'RAG index has been successfully rebuilt with 10% similarity threshold',
+        stats: stats,
+        similarityThreshold: '10%'
+      }, 'rebuildRAGIndex');
+    });
+  } catch (err: any) {
+    console.error('RAG Rebuild failed:', err);
+    postToSidebar('Rebuild Error', 'Failed to rebuild RAG index: ' + String(err), 'rebuildRAGIndex');
+  }
+}
+
+/** Test RAG Command */
+export async function handleTestRAGCommand(payload?: { query?: string }): Promise<void> {
+  try {
+    const testQuery = payload?.query || 'test query for sorting function';
+    
+    console.log('Testing RAG system with query:', testQuery);
+    
+    const results = await runRetrievalPipeline(testQuery, 5, 0.1);
+    
+    const testResult = {
+      query: testQuery,
+      resultsCount: results.length,
+      similarityThreshold: '10%',
+      results: results.map(r => ({
+        file: r.filename,
+        similarity: r.relevance?.toFixed(3),
+        confidence: `${Math.round((r.relevance || 0) * 100)}%`,
+        preview: r.content.substring(0, 100)
+      })),
+      ragWorking: results.length > 0
+    };
+    
+    console.log(' RAG Test Result:', testResult);
+    postToSidebar('RAG Test', testResult, 'testRAG');
+  } catch (err: any) {
+    console.error(' RAG Test failed:', err);
+    postToSidebar('RAG Test Failed', 'RAG test failed: ' + String(err), 'testRAG');
+  }
+}
+
+/** AI Chat with RAG */
 export async function handleChatCommand(payload?: { message?: string }): Promise<void> {
   try {
     const userMessage = payload?.message;
@@ -348,9 +522,30 @@ export async function handleChatCommand(payload?: { message?: string }): Promise
     await runWithProgress('AI is thinking...', async (progress) => {
       progress.report({ message: 'Processing your question...' });
 
-      const prompt = `You are a helpful AI coding assistant. The user is asking: "${userMessage}"
+      // Use RAG to find relevant context for code questions with 10% threshold
+      let context = '';
+      if (isCodeRelatedQuery(userMessage)) {
+        progress.report({ message: 'Searching for relevant code with RAG...' });
+        try {
+          const relevantCode = await runRetrievalPipeline(userMessage, 3, 0.1);
+          if (relevantCode.length > 0) {
+            context = '\n\nRelevant code from your project found via RAG:\n' +
+              relevantCode.map(snippet => 
+                `File: ${snippet.filename} (similarity: ${(snippet.relevance || 0).toFixed(3)})\n` +
+                `Code:\n\`\`\`${snippet.language}\n${snippet.content}\n\`\`\`\n`
+              ).join('\n');
+            console.log(` RAG Chat found ${relevantCode.length} context snippets for: "${userMessage}"`);
+          }
+        } catch (ragError) {
+          console.warn('RAG context search failed for chat:', ragError);
+        }
+      }
 
-Please provide a helpful, concise response focused on coding assistance. If they're asking about code, provide practical examples and explanations.
+      const prompt = `You are a helpful AI coding assistant with access to the user's codebase via RAG.
+
+User question: "${userMessage}"${context}
+
+Please provide a helpful, concise response. If code context was found, reference it specifically.
 
 Response:`;
       
@@ -358,11 +553,12 @@ Response:`;
       postToSidebar('Chat Response', response, 'chat');
     });
   } catch (err: any) {
+    console.error(' Chat failed:', err);
     postToSidebar('Chat Error', 'Failed to process your message: ' + String(err), 'chat');
-    console.error(err);
   }
 }
 
+/** Other AI Commands */
 export async function handleExplainCodeCommand(payload?: { code?: string; path?: string }): Promise<void> {
   try {
     let code = payload?.code;
@@ -646,7 +842,6 @@ export async function handleCodeUnderstandingSearchCommand(payload?: { query?: s
             if (content.trim().length < 10) continue;
 
             // Extract meaningful code segments (functions, classes, etc.)
-            // removed unused filePath param from extractCodeSegments
             const codeSegments = extractCodeSegments(content, doc.languageId);
             
             if (codeSegments.length === 0) continue;
@@ -1362,121 +1557,6 @@ function analyzeFunctionTextResponse(
   };
 }
 
-
-export async function handleSemanticSearchCommand(payload?: { query?: string }): Promise<void> {
-  try {
-    const query = payload?.query;
-    if (!query?.trim()) {
-      postToSidebar('Semantic Search', 'Please enter a search query.', 'semanticSearch');
-      return;
-    }
-
-    await runWithProgress('Searching with AI...', async (progress) => {
-      progress.report({ message: 'Analyzing your query...' });
-
-      // Get search results first
-      const searchResults = searchIndex(query, 20);
-      
-      if (searchResults.length === 0) {
-        postToSidebar('Semantic Search', `No files found matching "${query}"`, 'semanticSearch');
-        return;
-      }
-
-      // Extract actual code content from files
-      const resultsWithContent = await Promise.all(
-        searchResults.slice(0, 10).map(async (result: any) => {
-          try {
-            const doc = await vscode.workspace.openTextDocument(result.filePath);
-            const content = doc.getText();
-            
-            // Extract function names and relevant code snippets
-            const functionNames = extractFunctionNames(content, doc.languageId);
-            // removed unused language parameter from extractRelevantCodeSnippet call
-            const codeSnippet = extractRelevantCodeSnippet(content, query);
-            const lineNumber = findRelevantLineNumber(content, query);
-            
-            return {
-              ...result,
-              functionName: functionNames[0] || result.fileName.replace(/\.[^/.]+$/, ''),
-              functionNames: functionNames,
-              codeSnippet: codeSnippet || content.substring(0, 200) + '...',
-              lineNumber: lineNumber,
-              fullContent: content.substring(0, 1000) // For AI analysis
-            };
-          } catch (err) {
-            console.warn(`Could not read file: ${result.filePath}`, err);
-            return {
-              ...result,
-              functionName: result.fileName.replace(/\.[^/.]+$/, ''),
-              functionNames: [],
-              codeSnippet: '// Could not read file content',
-              lineNumber: 1
-            };
-          }
-        })
-      );
-
-      // Prepare content for AI analysis
-      const filesForAnalysis = resultsWithContent.map((result, index) => 
-        `File ${index + 1}: ${result.fileName}
-Path: ${result.filePath}
-Language: ${result.language}
-Functions: ${result.functionNames.join(', ')}
-Relevant Code:
-\`\`\`${result.language}
-${result.codeSnippet}
-\`\`\``
-      ).join('\n\n');
-
-      // Use AI to analyze and rank the results semantically
-      const prompt = `The user is searching for: "${query}"
-      
-Here are the file search results with code snippets. Please analyze which files are most relevant to the query and provide a semantic ranking:
-
-${filesForAnalysis}
-
-Please provide:
-1. Which files are most relevant to the query and why (be specific about the code content)
-2. Key functions, classes, or code sections that match the intent
-3. Confidence scores for each file (0.1 to 1.0)
-4. Any additional insights about how the code relates to the query
-
-For each file, explain specifically what makes it relevant based on the actual code content.
-
-Semantic Analysis:`;
-
-      const aiResponse = await callAI(prompt);
-      
-      // Parse AI response to extract confidence scores
-      const confidenceScores = parseConfidenceScores(aiResponse, resultsWithContent);
-      
-      // Format results for the UI
-      const formattedResults = {
-        type: 'semanticSearchResults',
-        title: 'AI Semantic Search',
-        summary: `AI analyzed ${resultsWithContent.length} files for: "${query}"`,
-        results: resultsWithContent.map((result, index) => ({
-          fileName: result.fileName,
-          filePath: result.filePath,
-          language: result.language,
-          lineCount: result.lineCount || 0,
-          confidence: confidenceScores[index] || (0.8 - (index * 0.05)), // Fallback scoring
-          codeSnippet: result.codeSnippet,
-          functionName: result.functionName,
-          functionNames: result.functionNames,
-          lineNumber: result.lineNumber
-        })),
-        analysis: aiResponse
-      };
-      
-      postToSidebar('Semantic Search Results', formattedResults, 'semanticSearch');
-    });
-  } catch (err: any) {
-    postToSidebar('Semantic Search Error', 'Failed to perform semantic search: ' + String(err), 'semanticSearch');
-    console.error(err);
-  }
-}
-
 // Helper function to extract function names from code
 function extractFunctionNames(content: string, language: string): string[] {
   const functionNames: string[] = [];
@@ -1535,7 +1615,6 @@ function extractFunctionNames(content: string, language: string): string[] {
 }
 
 // Helper function to extract relevant code snippets based on query
-// removed unused language parameter
 function extractRelevantCodeSnippet(content: string, query: string): string {
   try {
     const lines = content.split('\n');
@@ -1609,7 +1688,21 @@ function parseConfidenceScores(aiResponse: string, results: any[]): number[] {
   return scores;
 }
 
-/** Legacy commands for compatibility */
+/** Helper Functions */
+function isCodeRelatedQuery(query: string): boolean {
+  const codeKeywords = [
+    'code', 'function', 'class', 'method', 'variable', 'import', 'export',
+    'react', 'component', 'hook', 'angular', 'vue', 'node', 'python',
+    'javascript', 'typescript', 'java', 'c#', 'php', 'ruby', 'go',
+    'rust', 'html', 'css', 'sql', 'database', 'api', 'endpoint',
+    'sort', 'filter', 'search', 'algorithm', 'data structure'
+  ];
+  
+  const lowerQuery = query.toLowerCase();
+  return codeKeywords.some(keyword => lowerQuery.includes(keyword));
+}
+
+/** Legacy Commands - Redirect to RAG */
 export async function handleAskAICommand(payload?: { code?: string }): Promise<void> {
   await handleExplainCodeCommand(payload);
 }
@@ -1631,35 +1724,43 @@ export async function handleAnalyzeSearchResultsCommand() {
   postToSidebar('Search Analysis', 'Search analysis is now integrated into the main chat. Try asking questions about your codebase.', 'analyzeSearchResults');
 }
 
-export async function handleSearchProjectCommand(payload?: { query?: string }) {
-  try {
-    const q = payload?.query || '';
-    const results = searchIndex(q, 20);
-    
-    if (results.length === 0) {
-      postToSidebar('Search Results', `No files found matching "${q}"`, 'searchProject');
-      return;
-    }
-
-    // Format results for interactive UI display
-    const formattedResults = {
-      type: 'fileList',
-      title: 'Search Results',
-      summary: `Found ${results.length} files matching "${q}"`,
-      files: results.map((r: any) => ({
-        fileName: r.fileName,
-        filePath: r.filePath,
-        language: r.language,
-        lineCount: r.lineCount || 0
-      }))
-    };
-    
-    postToSidebar('Search Results', formattedResults, 'searchProject');
-  } catch (err: any) {
-    postToSidebar('Search Error', 'Search failed: ' + String(err), 'searchProject');
-  }
+// Add debug function for testing thresholds
+export async function debugSimilarityScores(payload?: { query?: string }): Promise<void> {
+  const query = payload?.query || 'where is the function that does sort';
+  
+  console.log(' Debugging similarity scores for:', query);
+  
+  const results = await runRetrievalPipeline(query, 10, 0.0); // No filtering
+  
+  console.log(' ALL RESULTS (no filtering):');
+  results.forEach((r, i) => {
+    console.log(`${i + 1}. ${r.filename} - ${(r.relevance || 0).toFixed(3)} - ${r.filepath}`);
+    if (i < 3) console.log(`   Code: ${r.content.substring(0, 100)}...`);
+  });
+  
+  // Show what WOULD pass different thresholds
+  const thresholds = [0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1];
+  thresholds.forEach(threshold => {
+    const passed = results.filter(r => (r.relevance || 0) >= threshold).length;
+    console.log(` At ${threshold*100}% threshold: ${passed}/${results.length} results`);
+  });
+  
+  postToSidebar('Debug Results', {
+    query: query,
+    totalResults: results.length,
+    thresholds: thresholds.map(t => ({
+      threshold: t,
+      passed: results.filter(r => (r.relevance || 0) >= t).length
+    })),
+    topResults: results.slice(0, 5).map(r => ({
+      file: r.filename,
+      similarity: r.relevance?.toFixed(3),
+      preview: r.content.substring(0, 100)
+    }))
+  }, 'debug');
 }
 
+/** Legacy search commands for compatibility */
 export async function handleBuildSearchIndexCommand() {
   try {
     const results = await buildSearchIndex();
@@ -1747,14 +1848,47 @@ export async function handleQuickFileSearchCommand() {
 // ---------------------------------------------------------------------------
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log('Activating VS Code AI Extension...');
+  console.log('Activating VS Code AI Extension with PURE RAG (10% similarity threshold)...');
 
-  // Initialize search
+  // Initialize BOTH RAG storage systems and legacy search
+  try {
+    initializeEmbeddingStorage(context);
+    initializeVectorStore(context);
+    console.log('RAG storage systems initialized');
+  } catch (e) {
+    console.error('RAG storage initialization failed:', e);
+  }
+
   try {
     initializeSearch(context);
   } catch (e) {
     console.warn('initializeSearch error', e);
   }
+
+  // Initialize RAG embeddings in background
+  setTimeout(async () => {
+    try {
+      console.log('Initializing RAG embeddings...');
+      await initializeEmbeddings();
+      console.log(' RAG embeddings initialized');
+      
+      // Show ready message
+      const stats = await getVectorStoreStats();
+      console.log(' RAG Stats:', stats);
+      
+      postToSidebar('RAG Ready', {
+        message: 'AI Assistant is ready with semantic search (10% threshold)!',
+        stats: stats,
+        similarityThreshold: '10%',
+        instructions: 'Ask natural language questions about your codebase like "where is the sorting function" or "show me authentication code"'
+      }, 'ready');
+    } catch (e) {
+      console.error('RAG embeddings initialization failed:', e);
+      postToSidebar('RAG Initialization Failed', 
+        'Semantic search may not work properly. Try using the "Rebuild RAG Index" command.', 
+        'error');
+    }
+  }, 2000); // Increased delay to ensure workspace is ready
 
   // Register sidebar
   try {
@@ -1775,34 +1909,82 @@ export function activate(context: vscode.ExtensionContext) {
       )
     );
   } catch (e) {
-    console.warn('Sidebar registration failed', e);
+    console.error('Sidebar registration failed', e);
   }
 
-  // Register commands
+  // Register ALL commands - both RAG and legacy
   const regs: vscode.Disposable[] = [
-    // New revamped commands
+    // Pure RAG Search Commands
+    vscode.commands.registerCommand('vs-code-ai-extension.semanticSearch', handleSemanticSearchCommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.searchProject', handleSearchProjectCommand),
+
+    // RAG Diagnostic Commands
+    vscode.commands.registerCommand('vs-code-ai-extension.ragDiagnostics', handleRAGDiagnosticsCommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.rebuildRAGIndex', handleRebuildRAGIndexCommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.testRAG', handleTestRAGCommand),
+
+    // AI Commands with RAG
     vscode.commands.registerCommand('vs-code-ai-extension.chat', handleChatCommand),
     vscode.commands.registerCommand('vs-code-ai-extension.explainCode', handleExplainCodeCommand),
     vscode.commands.registerCommand('vs-code-ai-extension.findBugs', handleFindBugsCommand),
     vscode.commands.registerCommand('vs-code-ai-extension.suggestImprovements', handleSuggestImprovementsCommand),
     vscode.commands.registerCommand('vs-code-ai-extension.codeUnderstandingSearch', handleCodeUnderstandingSearchCommand),
-    vscode.commands.registerCommand('vs-code-ai-extension.semanticSearch', handleSemanticSearchCommand),
-// Add this to your command registrations in the activate function
     vscode.commands.registerCommand('vs-code-ai-extension.semanticFunctionSearch', handleSemanticFunctionSearchCommand),
-    
-    // New project-wide commands
+
+    // Project-wide commands
     vscode.commands.registerCommand('vs-code-ai-extension.analyzeProject', handleAnalyzeEntireProjectCommand),
     vscode.commands.registerCommand('vs-code-ai-extension.findBugsInProject', handleFindBugsInProjectCommand),
     vscode.commands.registerCommand('vs-code-ai-extension.generateProjectSummary', handleGenerateProjectSummaryCommand),
 
-    // Legacy commands for compatibility
+    // Debug commands
+    vscode.commands.registerCommand('vs-code-ai-extension.debugEmbeddings', async () => {
+      console.log(' DEBUGGING EMBEDDINGS - Command is working!');
+      
+      try {
+        const { generateEmbedding } = await import('./ai/callAI');
+        const { calculateCosineSimilarity } = await import('../core/similarity');
+        
+        const tests = [
+          { text: "config", desc: "simple config" },
+          { text: "configuration", desc: "similar to config" }, 
+          { text: "sort", desc: "different concept" },
+        ];
+        
+        for (const test of tests) {
+          const embedding = await generateEmbedding(test.text);
+          const magnitude = Math.sqrt(embedding.reduce((sum, v) => sum + v*v, 0));
+          
+          console.log(`\n "${test.text}": Dim=${embedding.length}, Magnitude=${magnitude.toFixed(3)}`);
+        }
+        
+        // Test similarities
+        console.log('\n SEMANTIC RELATIONSHIPS:');
+        const emb1 = await generateEmbedding("config");
+        const emb2 = await generateEmbedding("configuration");
+        const emb3 = await generateEmbedding("sort");
+        
+        console.log(`   config vs configuration: ${calculateCosineSimilarity(emb1, emb2).toFixed(3)}`);
+        console.log(`   config vs sort: ${calculateCosineSimilarity(emb1, emb3).toFixed(3)}`);
+        
+      } catch (error) {
+        console.error('Debug command failed:', error);
+      }
+    }),
+
+    // NEW: Debug similarity scores
+    vscode.commands.registerCommand('vs-code-ai-extension.debugSimilarity', () => 
+      debugSimilarityScores({ query: 'where is the function that does sort' })
+    ),
+
+    // Legacy compatibility (redirect to RAG)
     vscode.commands.registerCommand('vs-code-ai-extension.askAI', handleAskAICommand),
-    vscode.commands.registerCommand('vs-code-ai-extension.summarizeFile', handleSummarizeFileCommand),
     vscode.commands.registerCommand('vs-code-ai-extension.smartExplain', handleSmartExplainCommand),
     vscode.commands.registerCommand('vs-code-ai-extension.deepAnalysis', handleDeepAnalysisCommand),
     vscode.commands.registerCommand('vs-code-ai-extension.patternAnalysis', handlePatternAnalysisCommand),
     vscode.commands.registerCommand('vs-code-ai-extension.analyzeSearchResults', handleAnalyzeSearchResultsCommand),
-    vscode.commands.registerCommand('vs-code-ai-extension.searchProject', handleSearchProjectCommand),
+    vscode.commands.registerCommand('vs-code-ai-extension.summarizeFile', handleSummarizeFileCommand),
+
+    // Legacy search commands
     vscode.commands.registerCommand('vs-code-ai-extension.buildSearchIndex', handleBuildSearchIndexCommand),
     vscode.commands.registerCommand('vs-code-ai-extension.searchStats', handleSearchStatsCommand),
     vscode.commands.registerCommand('vs-code-ai-extension.searchByLanguage', handleSearchByLanguageCommand),
@@ -1813,7 +1995,7 @@ export function activate(context: vscode.ExtensionContext) {
       try {
         await vscode.commands.executeCommand('workbench.view.extension.vsCodeAI');
       } catch {
-            // Ignore disposal errors
+        // Ignore errors
       }
       setTimeout(() => sidebarProvider?.refresh(), 400);
     }),
@@ -1821,18 +2003,18 @@ export function activate(context: vscode.ExtensionContext) {
 
   regs.forEach((r) => context.subscriptions.push(r));
 
-  // Build index shortly after activation
+  // Build legacy search index shortly after activation
   setTimeout(() => {
     buildSearchIndex()
       .then((res) => {
         if (res && res.length > 0) {
-          postToSidebar('Ready', `AI Assistant is ready! Indexed ${res.length} files. Ask me anything about your code!`, 'ready');
+          console.log(`Legacy search indexed ${res.length} files`);
         }
       })
       .catch(() => {});
-  }, 2000);
+  }, 3000);
 
-  // Auto update index on save
+  // Auto update legacy index on save
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
       if (doc.fileName.includes('node_modules')) return;
@@ -1842,9 +2024,9 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  console.log('VS Code AI Extension activated.');
+  console.log('VS Code AI Extension with PURE RAG (10% similarity threshold) activated');
 }
 
 export function deactivate() {
-  console.log('VS Code AI Extension deactivated.');
+  console.log('VS Code AI Extension deactivated');
 }

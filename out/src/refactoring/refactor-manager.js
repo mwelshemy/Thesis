@@ -135,6 +135,7 @@ class RefactorManager {
                 vscode.window.showWarningMessage(`No pending changes for ${path.basename(filePath)}`);
                 return false;
             }
+            // Open the original document
             const document = await vscode.workspace.openTextDocument(filePath);
             const edit = new vscode.WorkspaceEdit();
             const fullRange = new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length));
@@ -145,6 +146,7 @@ class RefactorManager {
                 return false;
             }
             await document.save();
+            // Remove from pending list
             this._modifiedFiles.delete(filePath);
             this.emitChange();
             vscode.window.showInformationMessage(`Applied changes to ${path.basename(filePath)}`);
@@ -190,6 +192,7 @@ class RefactorManager {
         this._isInitialized = false;
         this._onDidChangeFiles.dispose();
     }
+    // Debug helper
     getDebugInfo() {
         return {
             isInitialized: this._isInitialized,

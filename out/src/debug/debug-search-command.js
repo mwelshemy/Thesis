@@ -35,7 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerDebugSearchCommand = registerDebugSearchCommand;
 const vscode = __importStar(require("vscode"));
-const search = __importStar(require("../search"));
+const search = __importStar(require("../search")); // adjust path if needed
 function normalizeAndTokenizeLocal(query) {
     if (!query)
         return [];
@@ -67,6 +67,7 @@ function registerDebugSearchCommand(context) {
         out.appendLine('=== Debug Search Command ===');
         try {
             out.appendLine('Rebuilding index (this may take a moment)...');
+            // If search.buildSearchIndex exists, call it to ensure the latest index
             if (typeof search.buildSearchIndex === 'function') {
                 await search.buildSearchIndex();
                 out.appendLine('Index rebuild complete.');
@@ -74,6 +75,7 @@ function registerDebugSearchCommand(context) {
             else {
                 out.appendLine('Warning: buildSearchIndex() not available on search module.');
             }
+            // show stats if available
             if (typeof search.getSearchStats === 'function') {
                 const stats = search.getSearchStats();
                 out.appendLine(`Index stats: files=${stats.fileCount} totalLines=${stats.totalLines} isIndexing=${stats.isIndexing} size=${stats.totalIndexSize}`);
@@ -81,14 +83,17 @@ function registerDebugSearchCommand(context) {
             else {
                 out.appendLine('Warning: getSearchStats() not available on search module.');
             }
+            // list top indexed files
             if (typeof search.getFileByPath !== 'undefined') {
                 out.appendLine('Listing first 10 index entries (fileName | filePath):');
                 try {
                     const indexEntries = search.__getIndex ? search.__getIndex() : null;
+                    // If __getIndex helper not present, try a search that returns recent files
                     if (Array.isArray(indexEntries) && indexEntries.length) {
                         indexEntries.slice(0, 10).forEach((f, i) => out.appendLine(`  ${i + 1}. ${f.fileName} | ${f.filePath}`));
                     }
                     else {
+                        // fallback: run empty query to get recent files
                         const recents = search.searchIndex ? search.searchIndex('') : [];
                         recents.slice(0, 10).forEach((f, i) => out.appendLine(`  ${i + 1}. ${f.fileName} | ${f.filePath}`));
                     }
@@ -97,6 +102,7 @@ function registerDebugSearchCommand(context) {
                     out.appendLine('  (could not enumerate index entries via helper) ' + String(e));
                 }
             }
+            // Ask the user for a query (pre-fill with your failing example)
             const userQuery = await vscode.window.showInputBox({
                 prompt: 'Enter query to debug (example: where can I find the insertion sort)',
                 value: 'where can I find the insertion sort'
@@ -106,6 +112,7 @@ function registerDebugSearchCommand(context) {
                 return;
             }
             out.appendLine(`\n--- Debugging query: "${userQuery}" ---`);
+            // Tokenize and show variants
             const tokens = normalizeAndTokenizeLocal(userQuery);
             out.appendLine(`Tokens: [${tokens.join(', ')}]`);
             const bigrams = [];
@@ -117,6 +124,7 @@ function registerDebugSearchCommand(context) {
                 const variants = generateIdentifierVariantsLocal(p);
                 out.appendLine(`Variants for "${p}": ${variants.join(', ')}`);
             }
+            // Run search with the raw NL query
             if (typeof search.searchIndex === 'function') {
                 out.appendLine('\nRunning searchIndex(raw query) …');
                 const rawResults = search.searchIndex(userQuery, 20) || [];
@@ -126,6 +134,7 @@ function registerDebugSearchCommand(context) {
             else {
                 out.appendLine('searchIndex not available from search module.');
             }
+            // Run token-by-token searches and variant searches
             for (const t of [...tokens, ...bigrams]) {
                 out.appendLine(`\nRunning searchIndex("${t}") …`);
                 try {
@@ -137,6 +146,7 @@ function registerDebugSearchCommand(context) {
                     out.appendLine('  error running token search: ' + String(e));
                 }
             }
+            // Also try a joined-identifier variant (e.g., insertionSort)
             const joined = tokens.join('');
             if (joined) {
                 out.appendLine(`\nRunning searchIndex(joined token "${joined}") …`);

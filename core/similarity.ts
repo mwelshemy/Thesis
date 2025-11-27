@@ -4,7 +4,15 @@
 
 export function calculateCosineSimilarity(vecA: number[], vecB: number[]): number {
   if (vecA.length !== vecB.length) {
-    throw new Error('Vectors must have same dimensions');
+    console.warn(`Vector dimension mismatch: ${vecA.length} vs ${vecB.length}. Truncating/padding to match.`);
+    
+    // Handle dimension mismatch by using the smaller dimension
+    const minLength = Math.min(vecA.length, vecB.length);
+    const truncatedA = vecA.slice(0, minLength);
+    const truncatedB = vecB.slice(0, minLength);
+    
+    vecA = truncatedA;
+    vecB = truncatedB;
   }
 
   let dotProduct = 0;
@@ -24,7 +32,8 @@ export function calculateCosineSimilarity(vecA: number[], vecB: number[]): numbe
     return 0;
   }
 
-  return dotProduct / (magnitudeA * magnitudeB);
+  const similarity = dotProduct / (magnitudeA * magnitudeB);
+  return similarity;
 }
 
 /**

@@ -227,6 +227,7 @@ class SidebarViewProvider {
             }
             const doc = await vscode.workspace.openTextDocument(filePath);
             const editor = await vscode.window.showTextDocument(doc);
+            // Reveal the line and set cursor position
             const position = new vscode.Position(lineNumber - 1, 0);
             editor.selection = new vscode.Selection(position, position);
             editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
@@ -373,13 +374,16 @@ class SidebarViewProvider {
     }
     _getHtml(webview) {
         const nonce = this._getNonce();
+        // Read HTML template from external file
         const htmlPath = path.join(this._extensionUri.fsPath, 'src', 'webviews', 'sidebar-template.html');
         const scriptPath = path.join(this._extensionUri.fsPath, 'src', 'webviews', 'sidebar-script.js');
         try {
             let htmlContent = fs.readFileSync(htmlPath, 'utf8');
             let scriptContent = fs.readFileSync(scriptPath, 'utf8');
+            // Replace placeholders with actual values
             htmlContent = htmlContent.replace(/\${nonce}/g, nonce);
             htmlContent = htmlContent.replace(/\${webview\.cspSource}/g, webview.cspSource);
+            // Convert resource paths to webview URIs
             const resourceFiles = [
                 'codesense-logo.png', 'chat-icon.png', 'analyze-icon.png', 'search-icon.png',
                 'assistant-icon.png', 'clear-icon.png', 'send-icon.png', 'analysis-icon.png',
@@ -389,14 +393,17 @@ class SidebarViewProvider {
             resourceFiles.forEach(filename => {
                 const resourcePath = vscode.Uri.joinPath(this._extensionUri, 'resources', filename);
                 const webviewUri = webview.asWebviewUri(resourcePath);
+                // Replace all occurrences of this resource path in the HTML
                 const placeholder = `\${webview.cspSource}../../resources/${filename}`;
                 htmlContent = htmlContent.replace(new RegExp(this._escapeRegExp(placeholder), 'g'), webviewUri.toString());
             });
+            // Inject the JavaScript content directly into the HTML
             htmlContent = htmlContent.replace('<!-- SCRIPT_PLACEHOLDER -->', `<script nonce="${nonce}">${scriptContent}</script>`);
             return htmlContent;
         }
         catch (error) {
             console.error('Error loading HTML template:', error);
+            // Fallback to a simple HTML if file reading fails
             return this._getFallbackHtml(webview);
         }
     }
@@ -489,6 +496,7 @@ class SidebarViewProvider {
                     d.dispose();
                 }
                 catch {
+                    // Ignore disposal errors
                 }
             }
             if (this._refactorChangeDisposable) {
@@ -496,6 +504,7 @@ class SidebarViewProvider {
                     this._refactorChangeDisposable.dispose();
                 }
                 catch {
+                    // Ignore disposal errors
                 }
             }
         }

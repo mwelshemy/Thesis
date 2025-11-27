@@ -1,4 +1,8 @@
 "use strict";
+/**
+ * REAL Workflow Orchestrator for AI + Search Integration
+ * Now with actual AI and Search component integration
+ */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.smartCodeAnalysis = smartCodeAnalysis;
 exports.quickCodeAnalysis = quickCodeAnalysis;
@@ -9,16 +13,22 @@ exports.performanceTest = performanceTest;
 const callAI_1 = require("../ai/callAI");
 const search_1 = require("../search");
 const context_builder_1 = require("./context-builder");
+/**
+ * Main workflow: Smart code analysis with project context
+ */
 async function smartCodeAnalysis(request) {
     const startTime = Date.now();
     try {
         console.log('🚀 Starting smart code analysis workflow...');
+        // Step 1: Ensure search index is built
         await (0, search_1.buildSearchIndex)();
         console.log('✅ Search index ready');
+        // Step 2: Search for relevant context
         const searchQuery = generateSearchQuery(request.selectedCode, request.userQuery);
         console.log(`🔍 Searching for: "${searchQuery}"`);
         const searchResults = (0, search_1.searchIndex)(searchQuery, request.maxSearchResults || 10);
         console.log(`📁 Found ${searchResults.length} relevant files`);
+        // Step 3: Build enhanced prompt using real context builder
         const basePrompt = request.userQuery || 'Please analyze this code:';
         let enhancedPrompt;
         let contextUsed = [];
@@ -33,8 +43,10 @@ async function smartCodeAnalysis(request) {
             contextUsed = searchResults.slice(0, 3).map((r) => r.fileName);
             console.log('📝 Using simple prompt format');
         }
+        // Step 4: Call REAL AI with enhanced context
         console.log('🤖 Calling AI with enhanced context...');
         let aiResponse;
+        // Use real AI if token available, otherwise use mock with warning
         const hasAIToken = process.env.HUGGINGFACE_API_TOKEN &&
             !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here');
         if (hasAIToken) {
@@ -45,6 +57,7 @@ async function smartCodeAnalysis(request) {
             console.log('🎭 Using mock AI response (no valid token found)');
             aiResponse = await (0, callAI_1.callAIMock)(enhancedPrompt);
         }
+        // Step 5: Handle AI response
         if (aiResponse.startsWith('ERROR:')) {
             throw new Error(`AI call failed: ${aiResponse}`);
         }
@@ -71,30 +84,39 @@ async function smartCodeAnalysis(request) {
         };
     }
 }
+/**
+ * Generate intelligent search query from code and user input
+ */
 function generateSearchQuery(selectedCode, userQuery) {
     if (userQuery) {
         return userQuery;
     }
+    // Extract potential search terms from code
     const lines = selectedCode.split('\n').slice(0, 5);
     const terms = new Set();
     lines.forEach((line) => {
+        // Look for function names, variables, etc.
         const functionMatch = line.match(/(function|const|let|var)\s+(\w+)/);
         if (functionMatch && functionMatch[2]) {
             terms.add(functionMatch[2]);
         }
+        // Look for class/interface names
         const classMatch = line.match(/(class|interface)\s+(\w+)/);
         if (classMatch && classMatch[2]) {
             terms.add(classMatch[2]);
         }
+        // Look for imports and exports
         const importMatch = line.match(/(import|export).*?from\s+['"]([^'"]+)['"]/);
         if (importMatch && importMatch[2]) {
             terms.add(importMatch[2].split('/').pop() || '');
         }
     });
+    // Filter out empty terms and take top 3
     const validTerms = Array.from(terms).filter(term => term && term.length > 2).slice(0, 3);
     if (validTerms.length > 0) {
         return validTerms.join(' ');
     }
+    // Fallback to code structure analysis
     if (selectedCode.includes('function'))
         return 'function';
     if (selectedCode.includes('class'))
@@ -103,6 +125,9 @@ function generateSearchQuery(selectedCode, userQuery) {
         return 'interface';
     return 'code pattern';
 }
+/**
+ * Quick analysis workflow for simple explanations
+ */
 async function quickCodeAnalysis(selectedCode) {
     return smartCodeAnalysis({
         selectedCode,
@@ -111,6 +136,9 @@ async function quickCodeAnalysis(selectedCode) {
         maxSearchResults: 3,
     });
 }
+/**
+ * Deep analysis workflow with full project context
+ */
 async function deepCodeAnalysis(selectedCode) {
     return smartCodeAnalysis({
         selectedCode,
@@ -119,6 +147,9 @@ async function deepCodeAnalysis(selectedCode) {
         maxSearchResults: 8,
     });
 }
+/**
+ * Pattern analysis workflow - find similar patterns in project
+ */
 async function patternAnalysis(selectedCode) {
     return smartCodeAnalysis({
         selectedCode,
@@ -127,10 +158,14 @@ async function patternAnalysis(selectedCode) {
         maxSearchResults: 6,
     });
 }
+/**
+ * Search-driven analysis - analyze search results with AI
+ */
 async function analyzeSearchResults(searchQuery, maxResults = 5) {
     const startTime = Date.now();
     try {
         console.log(`🔍 Analyzing search results for: "${searchQuery}"`);
+        // Step 1: Search for the query using real search
         const searchResults = (0, search_1.searchIndex)(searchQuery, maxResults);
         console.log(`📊 Found ${searchResults.length} search results`);
         if (searchResults.length === 0) {
@@ -142,6 +177,7 @@ async function analyzeSearchResults(searchQuery, maxResults = 5) {
                 workflowTime: Date.now() - startTime,
             };
         }
+        // Step 2: Build analysis prompt from real search results
         const resultsSummary = searchResults
             .map((result, index) => `--- Result ${index + 1} ---\nFile: ${result.fileName}\nLanguage: ${result.language}\nContent:\n${result.content.substring(0, 400)}...`)
             .join('\n\n');
@@ -154,6 +190,7 @@ Please analyze:
 2. Code quality and consistency observations
 3. Potential improvements or refactoring suggestions
 4. Any notable architecture or design patterns`;
+        // Step 3: Call REAL AI for analysis
         let aiResponse;
         const hasAIToken = process.env.HUGGINGFACE_API_TOKEN &&
             !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here');
@@ -184,14 +221,19 @@ Please analyze:
         };
     }
 }
+/**
+ * Performance test workflow - measure integration performance
+ */
 async function performanceTest(testCode = 'function test() { return "test"; }') {
     const startTime = Date.now();
     try {
         console.log('⏱️ Running performance test...');
+        // Test search performance
         const searchStart = Date.now();
         await (0, search_1.buildSearchIndex)();
         const searchResults = (0, search_1.searchIndex)('function', 5);
         const searchTime = Date.now() - searchStart;
+        // Test AI performance
         const aiStart = Date.now();
         const hasAIToken = process.env.HUGGINGFACE_API_TOKEN &&
             !process.env.HUGGINGFACE_API_TOKEN.includes('your_token_here');

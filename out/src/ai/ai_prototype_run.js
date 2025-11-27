@@ -1,4 +1,4 @@
-"use strict";
+//import fetch from 'node-fetch';
 async function testAI() {
     const testPrompts = [
         "function hello() { return 'world'; }",
@@ -12,7 +12,9 @@ async function testAI() {
                 body: JSON.stringify({ prompt })
             });
             const data = await response.json();
-            console.log(`Prompt:\n${prompt}\nGenerated:\n${data.generated_code}\n---`);
+            const responseData = data;
+            const generated = responseData.generated_code || responseData.generated_text || 'No response';
+            console.log(`Prompt:\n${prompt}\nGenerated:\n${generated}\n---`);
         }
         catch (err) {
             console.error('Error querying backend:', err);

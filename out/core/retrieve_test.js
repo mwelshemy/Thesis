@@ -39,7 +39,11 @@ exports.retrieve = retrieve;
 const vscode = __importStar(require("vscode"));
 const embeddings_1 = require("./embeddings");
 const similarity_1 = require("./similarity");
+// In-memory vector store
 let vectorStore = [];
+/**
+ * Generate embeddings for all project files and store in vector store
+ */
 async function generateEmbeddingsForProject() {
     try {
         if (!vscode.workspace.workspaceFolders) {
@@ -49,12 +53,13 @@ async function generateEmbeddingsForProject() {
         const files = await vscode.workspace.findFiles('**/*.{ts,js,tsx,jsx,py,java,cpp,c,cs,php,rb,go,rs}', '**/node_modules/**');
         vectorStore = [];
         let processed = 0;
-        for (const file of files.slice(0, 200)) {
+        for (const file of files.slice(0, 200)) { // Limit for performance
             try {
                 const document = await vscode.workspace.openTextDocument(file);
                 const content = document.getText();
                 if (content.length < 10 || content.length > 10000)
                     continue;
+                // Split file into smaller chunks (function/class level)
                 const chunks = splitCodeIntoChunks(content, document.languageId);
                 for (let i = 0; i < chunks.length; i++) {
                     const chunk = chunks[i];
@@ -86,6 +91,9 @@ async function generateEmbeddingsForProject() {
         return [];
     }
 }
+/**
+ * Retrieve candidate code snippets based on query similarity
+ */
 async function retrieveCandidates(query, maxResults = 10) {
     if (vectorStore.length === 0) {
         console.warn('Vector store is empty. Generating embeddings first...');
@@ -93,6 +101,7 @@ async function retrieveCandidates(query, maxResults = 10) {
     }
     const queryEmbedding = await (0, embeddings_1.generateEmbedding)(query);
     const scoredSnippets = [];
+    // Calculate similarity for each snippet
     for (const snippet of vectorStore) {
         if (snippet.embedding) {
             const similarity = (0, similarity_1.calculateCosineSimilarity)(queryEmbedding, snippet.embedding);
@@ -102,13 +111,22 @@ async function retrieveCandidates(query, maxResults = 10) {
             });
         }
     }
+    // Return top matches
     return scoredSnippets
         .sort((a, b) => (b.relevance || 0) - (a.relevance || 0))
         .slice(0, maxResults);
 }
+/**
+ * Backward-compatible alias: some tests / callers import `retrieve`
+ * (e.g. import { retrieve } from "./retrieve";). Provide a thin wrapper
+ * so existing code doesn't break.
+ */
 async function retrieve(query, maxResults = 10) {
     return retrieveCandidates(query, maxResults);
 }
+/**
+ * Split code into logical chunks (functions, classes, etc.)
+ */
 function splitCodeIntoChunks(content, language) {
     const chunks = [];
     const lines = content.split('\n');
@@ -118,6 +136,7 @@ function splitCodeIntoChunks(content, language) {
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         const trimmed = line.trim();
+        // Language-specific chunk detection
         if (isCodeBlockStart(trimmed, language) && !inBlock) {
             if (currentChunk.length > 0) {
                 chunks.push({
@@ -141,6 +160,7 @@ function splitCodeIntoChunks(content, language) {
         else if (inBlock || currentChunk.length === 0) {
             currentChunk.push(line);
         }
+        // Force chunk every 20 lines if no structure found
         if (currentChunk.length >= 20 && !inBlock) {
             chunks.push({
                 content: currentChunk.join('\n'),
@@ -150,6 +170,7 @@ function splitCodeIntoChunks(content, language) {
             chunkStartLine = i + 1;
         }
     }
+    // Add remaining content
     if (currentChunk.length > 0) {
         chunks.push({
             content: currentChunk.join('\n'),
