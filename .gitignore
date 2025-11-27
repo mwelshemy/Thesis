@@ -7,7 +7,7 @@ node_modules/
 *.pyc
 venv/
 env/
-
+*.exe
 
 # Hugging Face models (DO NOT UPLOAD)
 # This is the cache folder path from your logs
