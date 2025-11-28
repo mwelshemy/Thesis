@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { generateEmbeddingsWithCache, initializeEmbeddingStorage, getEmbeddingStorage, validateEmbedding, normalizeEmbedding } from './embeddings';
 import { calculateCosineSimilarity } from './similarity';
+import { splitCodeIntoChunksWithContext } from './pipeline';
 
 export interface CodeSnippet {
   filename: string;
@@ -10,13 +11,13 @@ export interface CodeSnippet {
   lineNumber: number;
   embedding?: number[];
   relevance?: number;
-  symbolSignature?: string; // Enhanced: symbol info
-  docComment?: string;      // Enhanced: leading comment/docstring
-  diagnostic?: string;      // Added: human-readable diagnostic for UI (optional)
-  symbolName?: string;      // Added: extracted symbol/class/function name (optional)
+  symbolSignature?: string;
+  docComment?: string;
+  diagnostic?: string;
+  symbolName?: string;
 }
 
-// Persistent vector store with file system backup
+// Persistent vector store
 let vectorStore: CodeSnippet[] = [];
 const VECTOR_STORE_VERSION = '1.0';
 
@@ -34,803 +35,220 @@ export class VectorStoreManager {
 
   constructor(context: vscode.ExtensionContext) {
     this.storagePath = context.globalStoragePath;
-    this.ensureStoragePath();
+    if (!this.storagePath) throw new Error('Storage path not available');
   }
 
-  private ensureStoragePath(): void {
-    if (!this.storagePath) {
-      throw new Error('Storage path not available');
-    }
-  }
-
-  private getVectorStoreFilePath(): string {
+  private getVectorStorePath(): string {
     return `${this.storagePath}/vector-store.json`;
   }
 
   private getWorkspaceHash(): string {
     const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-      return 'no-workspace';
-    }
-
-    const workspaceInfo = workspaceFolders
-      .map(folder => folder.uri.fsPath)
-      .sort()
-      .join('|');
-
-    return this.simpleHash(workspaceInfo).toString();
+    if (!workspaceFolders || workspaceFolders.length === 0) return 'no-workspace';
+    return this.simpleHash(workspaceFolders.map(f => f.uri.fsPath).sort().join('|')).toString();
   }
-
   private simpleHash(str: string): number {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      hash = ((hash << 5) - hash) + str.charCodeAt(i);
-      hash |= 0;
-    }
+    let hash = 0; for (let i = 0; i < str.length; i++) { hash = ((hash << 5) - hash) + str.charCodeAt(i); hash |= 0; }
     return Math.abs(hash);
   }
 
   async loadVectorStore(): Promise<CodeSnippet[]> {
-    if (this.isInitialized && vectorStore.length > 0) {
-      return vectorStore;
-    }
-
+    if (this.isInitialized && vectorStore.length > 0) return vectorStore;
     try {
-      const storePath = this.getVectorStoreFilePath();
-      const fs = require('fs');
-      const path = require('path');
-
+      const fs = require('fs'); const path = require('path');
+      const storePath = this.getVectorStorePath();
       if (fs.existsSync(storePath)) {
         const data = fs.readFileSync(storePath, 'utf8');
-        const storedData: VectorStoreData = JSON.parse(data);
-
-        // Validate store for current workspace and version
-        if (storedData.workspaceHash === this.getWorkspaceHash() && 
-            storedData.version === VECTOR_STORE_VERSION) {
-          vectorStore = storedData.snippets;
+        const store: VectorStoreData = JSON.parse(data);
+        if (store.workspaceHash === this.getWorkspaceHash() && store.version === VECTOR_STORE_VERSION) {
+          vectorStore = store.snippets;
           this.isInitialized = true;
-          console.log(`Loaded ${vectorStore.length} snippets from persistent storage`);
           return vectorStore;
-        } else {
-          console.log('Workspace or version changed, clearing old vector store');
         }
       }
-    } catch (error) {
-      console.warn('Failed to load vector store from disk:', error);
-    }
-
-    vectorStore = [];
-    this.isInitialized = true;
+    } catch { /* ignore */ }
+    vectorStore = []; this.isInitialized = true;
     return vectorStore;
   }
-
   async saveVectorStore(): Promise<void> {
-    try {
-      const storeData: VectorStoreData = {
-        version: VECTOR_STORE_VERSION,
-        workspaceHash: this.getWorkspaceHash(),
-        snippets: vectorStore,
-        created: Date.now(),
-        lastUpdated: Date.now()
-      };
-
-      const fs = require('fs');
-      const path = require('path');
-      const storePath = this.getVectorStoreFilePath();
-
-      // Ensure directory exists
-      const dir = path.dirname(storePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
-      const data = JSON.stringify(storeData, null, 2);
-      fs.writeFileSync(storePath, data, 'utf8');
-      console.log(`Saved ${vectorStore.length} snippets to persistent storage`);
-    } catch (error) {
-      console.error('Failed to save vector store:', error);
-      throw error;
-    }
+    const fs = require('fs'); const path = require('path');
+    const storePath = this.getVectorStorePath();
+    const dir = path.dirname(storePath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(storePath, JSON.stringify({
+      version: VECTOR_STORE_VERSION,
+      workspaceHash: this.getWorkspaceHash(),
+      snippets: vectorStore,
+      created: Date.now(),
+      lastUpdated: Date.now()
+    }, null, 2), 'utf8');
   }
-
   async clearVectorStore(): Promise<void> {
-    vectorStore = [];
-    this.isInitialized = true;
-
-    try {
-      const fs = require('fs');
-      const storePath = this.getVectorStoreFilePath();
-      if (fs.existsSync(storePath)) {
-        fs.unlinkSync(storePath);
-      }
-    } catch (error) {
-      console.warn('Failed to delete vector store file:', error);
-    }
+    vectorStore = []; this.isInitialized = true;
+    const fs = require('fs');
+    const storePath = this.getVectorStorePath();
+    if (fs.existsSync(storePath)) fs.unlinkSync(storePath);
   }
-
   getStats() {
     return {
       totalSnippets: vectorStore.length,
       snippetsWithEmbeddings: vectorStore.filter(s => s.embedding && validateEmbedding(s.embedding)).length,
       languages: [...new Set(vectorStore.map(s => s.language))],
-      isInitialized: this.isInitialized
+      isInitialized: this.isInitialized,
     };
   }
 }
 
-// Global vector store manager
 let vectorStoreManager: VectorStoreManager | null = null;
-
 export function initializeVectorStore(context: vscode.ExtensionContext): VectorStoreManager {
-  if (!vectorStoreManager) {
-    vectorStoreManager = new VectorStoreManager(context);
-  }
+  if (!vectorStoreManager) vectorStoreManager = new VectorStoreManager(context);
   return vectorStoreManager;
 }
-
 export function getVectorStoreManager(): VectorStoreManager {
-  if (!vectorStoreManager) {
-    throw new Error('Vector store not initialized. Call initializeVectorStore first.');
-  }
+  if (!vectorStoreManager) throw new Error('Vector store not initialized');
   return vectorStoreManager;
 }
 
 /**
- * Generate embeddings for all project files and store in vector store
+ * Full-project embedding generation, stores normalized valid embeddings for each chunk
  */
 export async function generateEmbeddingsForProject(): Promise<CodeSnippet[]> {
   try {
-    if (!vscode.workspace.workspaceFolders) {
-      console.warn('No workspace folder open.');
-      return [];
-    }
-
-    // Initialize storage systems
+    if (!vscode.workspace.workspaceFolders) return [];
     const embeddingStorage = getEmbeddingStorage();
     const vectorManager = getVectorStoreManager();
-    
-    // Load existing vector store first
     await vectorManager.loadVectorStore();
-    
     const workspacePath = vscode.workspace.workspaceFolders[0].uri.fsPath;
-    console.log(`Generating embeddings for workspace: ${workspacePath}`);
-
-    const files = await vscode.workspace.findFiles(
-      '**/*.{ts,js,tsx,jsx,py,java,cpp,c,cs,php,rb,go,rs}',
-      '**/node_modules/**'
-    );
-
-    console.log(`Found ${files.length} files to process`);
-
-    if (files.length === 0) {
-      console.warn('No source files found in workspace');
-      return [];
-    }
-
-    // Clear existing store for fresh generation
+    const files = await vscode.workspace.findFiles('**/*.{ts,js,tsx,jsx,py,java,cpp,c,cs,php,rb,go,rs}', '**/node_modules/**');
     await vectorManager.clearVectorStore();
     vectorStore = [];
-
-    let processedFiles = 0;
-    let totalSnippets = 0;
-
-    for (const file of files.slice(0, 200)) { // Limit for performance
+    for (const file of files.slice(0, 200)) {
       try {
-        const document = await vscode.workspace.openTextDocument(file);
-        const content = document.getText();
-        
-        if (content.length < 10 || content.length > 10000) continue;
-
-        // Split file into smaller chunks (function/class level)
-        const chunks = splitCodeIntoChunksWithContext(content, document.languageId);
-        
+        const doc = await vscode.workspace.openTextDocument(file);
+        const content = doc.getText();
+        if (content.length < 10 || content.length > 12000) continue;
+        const chunks = splitCodeIntoChunksWithContext(content, doc.languageId);
         if (chunks.length === 0) continue;
-
-        // Prepare chunks for batch embedding
-        const chunkContents = chunks.map(chunk => chunk.content);
-        const chunkMetadata = chunks.map((chunk, i) => ({
+        const chunkContents = chunks.map(c => c.content);
+        const chunkMetas = chunks.map((chunk, i) => ({
           filename: `${file.fsPath.split('/').pop()}#${i + 1}`,
           filepath: file.fsPath,
-          language: document.languageId,
+          language: doc.languageId,
           lineNumber: chunk.startLine
         }));
-
-        // Generate embeddings in batch with caching
         const embeddings = await generateEmbeddingsWithCache(
           chunkContents,
-          chunkMetadata,
+          chunkMetas,
           embeddingStorage
         );
-
-        // Create snippets with embeddings
         for (let i = 0; i < chunks.length; i++) {
-          const chunk = chunks[i];
-          const embedding = embeddings[i];
-          const normalizedEmbedding = normalizeEmbedding(embedding);
-          
-          if (validateEmbedding(normalizedEmbedding)) {
-            const snippet: CodeSnippet = {
-              filename: chunkMetadata[i].filename,
+          const emb = normalizeEmbedding(embeddings[i]);
+          if (validateEmbedding(emb)) {
+            vectorStore.push({
+              filename: chunkMetas[i].filename,
               filepath: file.fsPath,
-              content: chunk.content,
-              language: document.languageId,
-              lineNumber: chunk.startLine,
-              embedding: normalizedEmbedding,
-              symbolSignature: chunk.symbolSignature,
-              docComment: chunk.docComment,
+              content: chunks[i].content,
+              language: doc.languageId,
+              lineNumber: chunkMetas[i].lineNumber,
+              embedding: emb,
+              symbolSignature: chunks[i].symbolSignature,
+              docComment: chunks[i].docComment,
               diagnostic: undefined,
               symbolName: undefined
-            };
-            
-            vectorStore.push(snippet);
-            totalSnippets++;
+            });
           }
         }
-        
-        processedFiles++;
-        if (processedFiles % 10 === 0) {
-          console.log(`Processed ${processedFiles} files, generated ${totalSnippets} snippets...`);
-        }
-      } catch (error) {
-        console.warn(`Failed to process ${file.fsPath}:`, error);
-      }
+      } catch { }
     }
-
-    // Save the complete vector store to disk
     await vectorManager.saveVectorStore();
-
-    console.log(`Generated ${vectorStore.length} code snippet embeddings from ${processedFiles} files`);
     return vectorStore;
-  } catch (error) {
-    console.error('Error generating embeddings:', error);
-    return [];
-  }
+  } catch { return []; }
 }
 
 /**
- * New: Enhanced chunk splitting with symbol Signature & doc comment
- */
-export function splitCodeIntoChunksWithContext(content: string, language: string): Array<{ content: string; startLine: number; symbolSignature?: string; docComment?: string }> {
-  const blocks: Array<{ content: string; startLine: number; symbolSignature?: string; docComment?: string }> = [];
-  try {
-    const lines = content.split('\n');
-    let currentBlock: string[] = [];
-    let startLine = 1;
-    let symbolSignature = '';
-    let docCommentLines: string[] = [];
-
-    const symbolRegex = /^\s*(export\s+)?(class|function|interface|type|const|let|var|def)\s+([A-Za-z_]\w*)/;
-
-    function pushBlock() {
-      if (currentBlock.length > 0) {
-        blocks.push({
-          content: currentBlock.join('\n'),
-          startLine,
-          symbolSignature: symbolSignature || undefined,
-          docComment: docCommentLines.join(' ') || undefined
-        });
-      }
-      currentBlock = [];
-      symbolSignature = '';
-      docCommentLines = [];
-    }
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const trimmed = line.trim();
-
-      if (/^\/\/|^\/\*|^\*/.test(trimmed)) {
-        // accumulate comment lines to attach as docComment when symbol appears
-        docCommentLines.push(trimmed.replace(/^\/\/\s*|^\/\*\s*|^\*\s*/, ''));
-        continue;
-      }
-
-      const m = trimmed.match(symbolRegex);
-      if (m) {
-        // start of symbol - flush previous block, attach docComment and signature
-        if (currentBlock.length > 0) pushBlock();
-        symbolSignature = trimmed;
-        startLine = i + 1;
-        currentBlock.push(line);
-        // reset docComment accumulator for next block
-        docCommentLines = docCommentLines;
-      } else {
-        currentBlock.push(line);
-      }
-
-      // Force chunk if too large and not a symbol block
-      if (currentBlock.length >= 40) {
-        pushBlock();
-        startLine = i + 2;
-      }
-    }
-    pushBlock();
-  } catch (err) {
-    // fall back to simple chunk
-    const fallback = content.substring(0, 500);
-    return [{ content: fallback, startLine: 1 }];
-  }
-  return blocks;
-}
-
-/**
- * Retrieve candidate code snippets based on query similarity
+ * Main: retrieve candidates given a query, using semantic similarity
  */
 export async function retrieveCandidates(query: string, maxResults: number = 10): Promise<CodeSnippet[]> {
-  try {
-    const vectorManager = getVectorStoreManager();
-    await vectorManager.loadVectorStore();
-    
-    if (vectorStore.length === 0) {
-      console.warn('Vector store is empty. Generating embeddings first...');
-      await generateEmbeddingsForProject();
-      
-      if (vectorStore.length === 0) {
-        console.warn('Still no snippets after generation');
-        return [];
-      }
-    }
+  const vectorManager = getVectorStoreManager();
+  await vectorManager.loadVectorStore();
 
-    console.log(`Searching ${vectorStore.length} snippets for: "${query}"`);
-
-    const embeddingStorage = getEmbeddingStorage();
-    const queryEmbedding = await embeddingStorage.getEmbedding(query, { type: 'query' });
-    const normalizedQueryEmbedding = normalizeEmbedding(queryEmbedding);
-
-    if (!validateEmbedding(normalizedQueryEmbedding)) {
-      console.error('Invalid query embedding generated');
-      return [];
-    }
-
-    console.log(`Query embedding dimension: ${normalizedQueryEmbedding.length}`);
-
-    const scoredSnippets: CodeSnippet[] = [];
-
-    // Calculate similarity for each snippet with valid embedding
-    for (const snippet of vectorStore) {
-      if (snippet.embedding && validateEmbedding(snippet.embedding)) {
-        try {
-          const similarity = calculateCosineSimilarity(normalizedQueryEmbedding, snippet.embedding);
-          scoredSnippets.push({
-            ...snippet,
-            relevance: similarity
-          });
-        } catch (error) {
-          console.warn(`Failed to calculate similarity for ${snippet.filename}:`, error);
-        }
-      }
-    }
-
-    console.log(`Found ${scoredSnippets.length} valid snippets with embeddings`);
-
-    // Return top matches - ensure we return something even if scores are low
-    const results = scoredSnippets
-      .sort((a, b) => (b.relevance || 0) - (a.relevance || 0))
-      .slice(0, maxResults);
-
-    console.log(`Returning ${results.length} results (best score: ${results[0]?.relevance?.toFixed(3)})`);
-    
-    if (results.length === 0 && scoredSnippets.length > 0) {
-      console.log(' No results passed threshold, returning top 3 for debugging');
-      return scoredSnippets.slice(0, 3);
-    }
-    
-    return results;
-  } catch (error) {
-    console.error('Error retrieving candidates:', error);
-    return [];
+  // If store is empty, forcibly rebuild it
+  if (vectorStore.length === 0) {
+    await generateEmbeddingsForProject();
+    if (vectorStore.length === 0) return [];
   }
-}
 
-/**
- * Quick search without generating query embedding (for simple text matching)
- */
-export async function quickTextSearch(query: string, maxResults: number = 10): Promise<CodeSnippet[]> {
+  // Always generate query embedding and normalize
+  const embeddingStorage = getEmbeddingStorage();
+  let queryEmbedding: number[];
   try {
-    const vectorManager = getVectorStoreManager();
-    await vectorManager.loadVectorStore();
-    
-    if (vectorStore.length === 0) {
-      return [];
-    }
+    queryEmbedding = await embeddingStorage.getEmbedding(query, { type: 'query' });
+  } catch {
+    // Fallback: local embedding
+    queryEmbedding = normalizeEmbedding(embeddingStorage['generateHighQualityLocalEmbedding'](query));
+  }
+  const normQueryEmbedding = normalizeEmbedding(queryEmbedding);
+  if (!validateEmbedding(normQueryEmbedding)) return [];
 
-    const queryLower = query.toLowerCase();
-    const scoredSnippets: CodeSnippet[] = [];
-
-    for (const snippet of vectorStore) {
-      let score = 0;
-      
-      // Simple text matching scoring
-      if (snippet.filename.toLowerCase().includes(queryLower)) {
-        score += 0.5;
-      }
-      if (snippet.content.toLowerCase().includes(queryLower)) {
-        score += 0.3;
-      }
-      if (snippet.language.toLowerCase().includes(queryLower)) {
-        score += 0.2;
-      }
-      
-      if (score > 0) {
+  // Compare with each snippet and score
+  const scoredSnippets: CodeSnippet[] = [];
+  for (const snippet of vectorStore) {
+    if (snippet.embedding && validateEmbedding(snippet.embedding)) {
+      try {
+        const similarity = calculateCosineSimilarity(normQueryEmbedding, snippet.embedding);
         scoredSnippets.push({
           ...snippet,
-          relevance: score
+          relevance: similarity
         });
-      }
-    }
-
-    return scoredSnippets
-      .sort((a, b) => (b.relevance || 0) - (a.relevance || 0))
-      .slice(0, maxResults);
-  } catch (error) {
-    console.error('Error in quick text search:', error);
-    return [];
-  }
-}
-
-/**
- * Get similar snippets to a given code snippet
- */
-export async function findSimilarSnippets(
-  referenceSnippet: CodeSnippet, 
-  maxResults: number = 5
-): Promise<CodeSnippet[]> {
-  try {
-    const vectorManager = getVectorStoreManager();
-    await vectorManager.loadVectorStore();
-    
-    if (vectorStore.length === 0 || !referenceSnippet.embedding) {
-      return [];
-    }
-
-    const scoredSnippets: CodeSnippet[] = [];
-
-    for (const snippet of vectorStore) {
-      if (snippet.embedding && snippet.filename !== referenceSnippet.filename) {
-        try {
-          const similarity = calculateCosineSimilarity(referenceSnippet.embedding, snippet.embedding);
-          scoredSnippets.push({
-            ...snippet,
-            relevance: similarity
-          });
-        } catch (error) {
-          // Skip similarity calculation errors
-        }
-      }
-    }
-
-    return scoredSnippets
-      .sort((a, b) => (b.relevance || 0) - (a.relevance || 0))
-      .slice(0, maxResults);
-  } catch (error) {
-    console.error('Error finding similar snippets:', error);
-    return [];
-  }
-}
-
-/**
- * Split code into logical chunks (functions, classes, methods) with improved chunking
- */
-/**
- * Split code into meaningful chunks (functions, classes, methods) with proper boundaries
- */
-/**
- * Simple and reliable code chunking - keep functions/classes intact
- */
-/**
- * Better chunking - keep complete functions/methods together
- */
-function splitCodeIntoChunks(content: string, language: string): { content: string; startLine: number }[] {
-  const chunks: { content: string; startLine: number }[] = [];
-  const lines = content.split('\n');
-  
-  let currentChunk: string[] = [];
-  let chunkStartLine = 1;
-  let braceCount = 0;
-  let inFunction = false;
-  let functionStartLine = 1;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const trimmed = line.trim();
-
-    // Skip empty lines at the start
-    if (trimmed === '' && currentChunk.length === 0) {
-      chunkStartLine = i + 2;
-      continue;
-    }
-
-    // Count braces to detect function boundaries
-    braceCount += (line.match(/{/g) || []).length;
-    braceCount -= (line.match(/}/g) || []).length;
-
-    // Detect function/class starts
-    const isFunctionStart = isFunctionOrClassStart(trimmed, language);
-    
-    if (isFunctionStart && !inFunction) {
-      // If we were collecting something, save it first
-      if (currentChunk.length > 0) {
-        const chunkContent = currentChunk.join('\n').trim();
-        if (chunkContent.length >= 10) {
-          chunks.push({
-            content: chunkContent,
-            startLine: chunkStartLine
-          });
-        }
-      }
-      
-      // Start new function chunk
-      currentChunk = [line];
-      chunkStartLine = i + 1;
-      functionStartLine = i + 1;
-      inFunction = true;
-    } else if (inFunction && braceCount === 0 && currentChunk.length > 0) {
-      // Function ended - save the complete function
-      currentChunk.push(line);
-      const chunkContent = currentChunk.join('\n').trim();
-      if (chunkContent.length >= 20) {
-        chunks.push({
-          content: chunkContent,
-          startLine: functionStartLine
-        });
-      }
-      currentChunk = [];
-      inFunction = false;
-      chunkStartLine = i + 2;
-    } else {
-      currentChunk.push(line);
-    }
-
-    // Force chunk every 40 lines if no structure found (for comments, configs, etc.)
-    if (currentChunk.length >= 40 && !inFunction) {
-      const chunkContent = currentChunk.join('\n').trim();
-      if (chunkContent.length >= 10) {
-        chunks.push({
-          content: chunkContent,
-          startLine: chunkStartLine
-        });
-      }
-      currentChunk = [];
-      chunkStartLine = i + 2;
+      } catch { }
     }
   }
+  // sort and filter: always return at least top 3 for debugging unless store is completely empty
+  const results = scoredSnippets
+    .sort((a, b) => (b.relevance || 0) - (a.relevance || 0))
+    .slice(0, Math.max(maxResults, 3));
+  return results;
+}
 
-  // Add any remaining content
-  if (currentChunk.length > 0) {
-    const chunkContent = currentChunk.join('\n').trim();
-    if (chunkContent.length >= 10) {
-      chunks.push({
-        content: chunkContent,
-        startLine: chunkStartLine
-      });
+/** Find similar snippets to a given reference snippet */
+export async function findSimilarSnippets(referenceSnippet: CodeSnippet, maxResults: number = 5): Promise<CodeSnippet[]> {
+  const vectorManager = getVectorStoreManager();
+  await vectorManager.loadVectorStore();
+  if (vectorStore.length === 0 || !referenceSnippet.embedding) return [];
+  const scored: CodeSnippet[] = [];
+  for (const snippet of vectorStore) {
+    if (snippet.embedding && snippet.filename !== referenceSnippet.filename) {
+      try {
+        const similarity = calculateCosineSimilarity(referenceSnippet.embedding, snippet.embedding);
+        scored.push({ ...snippet, relevance: similarity });
+      } catch { }
     }
   }
-
-  console.log(`✅ Split ${lines.length} lines into ${chunks.length} COMPLETE chunks for ${language}`);
-  
-  // Log function chunks for debugging
-  const functionChunks = chunks.filter(chunk => 
-    isFunctionOrClassStart(chunk.content.split('\n')[0], language)
-  );
-  console.log(`   📊 Found ${functionChunks.length} complete functions/classes`);
-  
-  return chunks;
+  return scored.sort((a, b) => (b.relevance || 0) - (a.relevance || 0)).slice(0, maxResults);
 }
 
-function isFunctionOrClassStart(line: string, language: string): boolean {
-  const patterns = [
-    /^export\s+class\s+\w+/,                    // export class SortingAlgorithms
-    /^class\s+\w+/,                             // class SortingAlgorithms  
-    /^export\s+function\s+\w+/,                 // export function bubbleSort
-    /^function\s+\w+/,                          // function bubbleSort
-    /^public\s+static\s+\w+\(/,                 // public static bubbleSort(
-    /^private\s+static\s+\w+\(/,                // private static bubbleSort(
-    /^protected\s+static\s+\w+\(/,              // protected static bubbleSort(
-    /^static\s+\w+\(/,                          // static bubbleSort(
-    /^const\s+\w+\s*=\s*\([^)]*\)\s*=>\s*{/,   // const bubbleSort = () => {
-    /^let\s+\w+\s*=\s*\([^)]*\)\s*=>\s*{/,     // let bubbleSort = () => {
-    /^var\s+\w+\s*=\s*\([^)]*\)\s*=>\s*{/,     // var bubbleSort = () => {
-    /^export\s+default\s+class/,                // export default class
-    /^export\s+default\s+function/              // export default function
-  ];
-
-  return patterns.some(pattern => pattern.test(line.trim()));
-}
-
-function isFunctionDeclaration(line: string, language: string): boolean {
-  const patterns: { [key: string]: RegExp[] } = {
-    typescript: [
-      /^(export\s+)?(async\s+)?function\s+\w+\s*\(/,
-      /^(export\s+)?(public|private|protected)?\s*(async\s+)?\w+\s*\([^)]*\)\s*[:{=]/,
-      /^(export\s+)?(async\s+)?(const|let|var)\s+\w+\s*=\s*(\([^)]*\)|function)\s*[=>{]/,
-      /^(export\s+)?(async\s+)?class\s+\w/,
-      /^\([^)]*\)\s*=>\s*{/,
-    ],
-    javascript: [
-      /^(export\s+)?(async\s+)?function\s+\w+\s*\(/,
-      /^(export\s+)?(async\s+)?\w+\s*\([^)]*\)\s*{/,
-      /^(export\s+)?(async\s+)?(const|let|var)\s+\w+\s*=\s*(\([^)]*\)|function)\s*[=>{]/,
-      /^(export\s+)?(async\s+)?class\s+\w/,
-      /^\([^)]*\)\s*=>\s*{/,
-    ],
-    typescriptreact: [
-      /^(export\s+)?(async\s+)?function\s+\w+\s*\(/,
-      /^(export\s+)?(public|private|protected)?\s*(async\s+)?\w+\s*\([^)]*\)\s*[:{=]/,
-      /^(export\s+)?(async\s+)?(const|let|var)\s+\w+\s*=\s*(\([^)]*\)|function)\s*[=>{]/,
-      /^(export\s+)?(async\s+)?class\s+\w/,
-      /^\([^)]*\)\s*=>\s*{/,
-      /^const\s+\w+\s*=\s*\([^)]*\)\s*=>\s*{/,
-    ]
-  };
-
-  const languagePatterns = patterns[language] || patterns.typescript;
-  return languagePatterns.some(pattern => pattern.test(line));
-}
-
-function isClassDeclaration(line: string, language: string): boolean {
-  return /^(export\s+)?class\s+\w/.test(line) || 
-         /^(export\s+)?interface\s+\w/.test(line);
-}
-
-function countBraces(line: string): number {
-  const openBraces = (line.match(/{/g) || []).length;
-  const closeBraces = (line.match(/}/g) || []).length;
-  return openBraces - closeBraces;
-}
-
-function hasCompleteStructure(content: string, language: string): boolean {
-  // Check if the chunk has at least one complete function/class structure
-  return isFunctionDeclaration(content.split('\n')[0], language) || 
-         isClassDeclaration(content.split('\n')[0], language) ||
-         content.includes('function ') ||
-         content.includes('class ') ||
-         content.includes('const ') && content.includes('=>');
-}
-/**
- * Enhanced function detection
- */
-function isFunctionStart(line: string, language: string): boolean {
-  const patterns: { [key: string]: RegExp[] } = {
-    typescript: [
-      /^(export\s+)?(async\s+)?function\s+\w/,
-      /^(export\s+)?(async\s+)?\w+\s*\([^)]*\)\s*[:{=]/,
-      /^(export\s+)?(async\s+)?const\s+\w+\s*=\s*(\([^)]*\)|function)\s*[=:{]/,
-      /^(export\s+)?(async\s+)?let\s+\w+\s*=\s*(\([^)]*\)|function)\s*[=:{]/,
-      /^(export\s+)?(async\s+)?var\s+\w+\s*=\s*(\([^)]*\)|function)\s*[=:{]/,
-      /^\([^)]*\)\s*=>/,
-    ],
-    javascript: [
-      /^(export\s+)?(async\s+)?function\s+\w/,
-      /^(export\s+)?(async\s+)?\w+\s*\([^)]*\)\s*\{/,
-      /^(export\s+)?(async\s+)?const\s+\w+\s*=\s*(\([^)]*\)|function)\s*[=:{]/,
-      /^(export\s+)?(async\s+)?let\s+\w+\s*=\s*(\([^)]*\)|function)\s*[=:{]/,
-      /^(export\s+)?(async\s+)?var\s+\w+\s*=\s*(\([^)]*\)|function)\s*[=:{]/,
-      /^\([^)]*\)\s*=>/,
-    ],
-    python: [
-      /^def\s+\w/,
-      /^class\s+\w/,
-      /^async\s+def\s+\w/,
-      /^@\w+/,
-    ],
-    java: [
-      /^(public|private|protected|static|\s)+\s+.*\w+\s*\([^)]*\)\s*\{/,
-      /^class\s+\w/,
-      /^interface\s+\w/,
-    ],
-  };
-
-  const languagePatterns = patterns[language] || patterns.typescript;
-  return languagePatterns.some(pattern => pattern.test(line));
-}
-
-function isClassStart(line: string, language: string): boolean {
-  const patterns: { [key: string]: RegExp[] } = {
-    typescript: [
-      /^(export\s+)?class\s+\w/,
-      /^(export\s+)?interface\s+\w/,
-      /^(export\s+)?type\s+\w/,
-      /^(export\s+)?enum\s+\w/,
-    ],
-    javascript: [
-      /^(export\s+)?class\s+\w/,
-    ],
-    python: [
-      /^class\s+\w/,
-    ],
-    java: [
-      /^(public|private|protected)?\s*class\s+\w/,
-      /^interface\s+\w/,
-      /^enum\s+\w/,
-    ],
-  };
-
-  const languagePatterns = patterns[language] || patterns.typescript;
-  return languagePatterns.some(pattern => pattern.test(line));
-}
-
-function isMethodStart(line: string, language: string): boolean {
-  const patterns: { [key: string]: RegExp[] } = {
-    typescript: [
-      /^\w+\s*\([^)]*\)\s*\{/,
-      /^get\s+\w+\s*\([^)]*\)\s*\{/,
-      /^set\s+\w+\s*\([^)]*\)\s*\{/,
-      /^constructor\s*\([^)]*\)\s*\{/,
-    ],
-    javascript: [
-      /^\w+\s*\([^)]*\)\s*\{/,
-      /^get\s+\w+\s*\([^)]*\)\s*\{/,
-      /^set\s+\w+\s*\([^)]*\)\s*\{/,
-    ],
-    python: [
-      /^def\s+\w/,
-    ],
-    java: [
-      /^\w+\s*\([^)]*\)\s*\{/,
-    ],
-  };
-
-  const languagePatterns = patterns[language] || patterns.typescript;
-  return languagePatterns.some(pattern => pattern.test(line));
-}
-
-/**
- * Diagnostic functions
- */
+/** Diagnostic */
 export async function getVectorStoreStats() {
   const vectorManager = getVectorStoreManager();
   await vectorManager.loadVectorStore();
   return vectorManager.getStats();
 }
 
-export async function validateVectorStore(): Promise<{
-  valid: boolean;
-  issues: string[];
-  stats: any;
-}> {
+export async function validateVectorStore() {
   const issues: string[] = [];
   const vectorManager = getVectorStoreManager();
-  
-  try {
-    await vectorManager.loadVectorStore();
-    const stats = vectorManager.getStats();
-    
-    if (stats.totalSnippets === 0) {
-      issues.push('Vector store is empty');
-    }
-    
-    if (stats.snippetsWithEmbeddings === 0) {
-      issues.push('No snippets have valid embeddings');
-    }
-    
-    const invalidEmbeddings = vectorStore.filter(snippet => 
-      snippet.embedding && !validateEmbedding(snippet.embedding)
-    ).length;
-    
-    if (invalidEmbeddings > 0) {
-      issues.push(`${invalidEmbeddings} snippets have invalid embeddings`);
-    }
-    
-    return {
-      valid: issues.length === 0,
-      issues,
-      stats
-    };
-  } catch (error) {
-    return {
-      valid: false,
-      issues: [`Failed to validate vector store: ${error}`],
-      stats: {}
-    };
-  }
+  await vectorManager.loadVectorStore();
+  const stats = vectorManager.getStats();
+  if (stats.totalSnippets === 0) issues.push('Vector store empty');
+  if (stats.snippetsWithEmbeddings === 0) issues.push('No valid embeddings');
+  const invalid = vectorStore.filter(snippet => snippet.embedding && !validateEmbedding(snippet.embedding)).length;
+  if (invalid > 0) issues.push(`${invalid} snippets have invalid embeddings`);
+  return { valid: issues.length === 0, issues, stats };
 }
 
-export async function clearAllEmbeddings(): Promise<void> {
+export async function clearAllEmbeddings() {
   const vectorManager = getVectorStoreManager();
   const embeddingStorage = getEmbeddingStorage();
-  
   await vectorManager.clearVectorStore();
   await embeddingStorage.clearCache();
-  
-  console.log(' Cleared all embeddings and vector store');
 }

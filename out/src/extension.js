@@ -68,7 +68,6 @@ const refactor_manager_1 = require("./refactoring/refactor-manager");
 const pipeline_1 = require("../core/pipeline");
 const embeddings_1 = require("../core/embeddings");
 const retrieve_1 = require("../core/retrieve");
-const fastBugScan_1 = require("./fastBugScan");
 const search_1 = require("./search");
 let sidebarProvider;
 /** Utilities */
@@ -220,51 +219,52 @@ Project Analysis:`;
 }
 async function handleFindBugsInProjectCommand() {
     try {
-        await runWithProgress('Scanning project for bugs (fast mode)...', async (progress) => {
-            progress.report({ message: 'Collecting project files and running fast scan...' });
-            const result = await (0, fastBugScan_1.fastFindBugsInProject)({
-                maxFiles: 80,
-                batchSize: 6,
-                concurrency: 2,
-                includeStaticChecks: true,
-                aiInstructions: 'Focus on critical runtime bugs and security vulnerabilities. Return only concise issues.'
+        await runWithProgress('Scanning project for bugs...', async (progress) => {
+            progress.report({ message: 'Collecting project files...' });
+            const files = await getAllProjectFiles();
+            const bugReports = [];
+            if (files.length === 0) {
+                postToSidebar('Project Bug Scan', 'No files found to analyze.', 'findBugsInProject');
+                return;
+            }
+            // Focus on source code files
+            const sourceFiles = files.filter(file => {
+                const ext = file.fsPath.split('.').pop() || '';
+                const sourceExtensions = ['js', 'ts', 'jsx', 'tsx', 'py', 'java', 'cpp', 'c', 'cs', 'php', 'rb', 'go', 'rs'];
+                return sourceExtensions.includes(ext);
             });
-            if (result.warnings && result.warnings.length) {
-                console.warn('Fast bug scan warnings:', result.warnings);
-            }
-            const reports = result.reports || [];
-            if (!reports || reports.length === 0) {
-                postToSidebar('Project Bug Scan', 'No issues found by fast scan.', 'findBugsInProject');
-                return;
-            }
-            // Format an aggregated report (concise)
-            const lines = [];
-            let totalIssues = 0;
-            for (const r of reports) {
-                if (!r.issues || r.issues.length === 0)
-                    continue;
-                totalIssues += r.issues.length;
-                lines.push(`### ${r.fileName}`);
-                r.issues.slice(0, 20).forEach((issue, i) => {
-                    const prefix = issue.severity ? `[${issue.severity}] ` : '';
-                    const loc = issue.location ? ` (${issue.location})` : '';
-                    lines.push(`- ${prefix}${issue.message}${loc}${issue.suggestion ? ` — Suggestion: ${issue.suggestion}` : ''}`);
+            // Analyze files in batches
+            for (let i = 0; i < Math.min(sourceFiles.length, 25); i++) {
+                const file = sourceFiles[i];
+                progress.report({
+                    message: `Analyzing ${file.fsPath.split(/[\\/]/).pop()} (${i + 1}/${Math.min(sourceFiles.length, 25)})...`,
+                    increment: (100 / Math.min(sourceFiles.length, 25))
                 });
-                if (r.raw) {
-                    lines.push(`\n\`\`\`\n${r.raw.substring(0, 1000)}\n\`\`\`\n`);
+                try {
+                    const doc = await vscode.workspace.openTextDocument(file);
+                    const content = doc.getText();
+                    const language = doc.languageId || getLanguageFromExtension(file.fsPath.split('.').pop() || '');
+                    if (content.length > 50) { // Only analyze non-trivial files
+                        const bugReport = await analyzeFileForBugs(file.fsPath.split(/[\\/]/).pop() || 'unknown', content, language);
+                        if (bugReport) {
+                            bugReports.push(bugReport);
+                        }
+                    }
                 }
-                lines.push('---');
+                catch (err) {
+                    console.warn(`Could not analyze file: ${file.fsPath}`, err);
+                }
             }
-            if (totalIssues === 0) {
-                postToSidebar('Project Bug Scan', 'No significant issues found by fast scan.', 'findBugsInProject');
+            if (bugReports.length === 0) {
+                postToSidebar('Project Bug Scan', 'No significant issues found in scanned files.', 'findBugsInProject');
                 return;
             }
-            const combined = `## Project Bug Scan (fast)\n\nFiles scanned: ${reports.length}\nTotal issues found: ${totalIssues}\n\n` + lines.join('\n');
-            postToSidebar('Project Bug Report', combined, 'findBugsInProject');
+            const combinedReport = `## Project Bug Scan Report\n\n**Files Analyzed:** ${Math.min(sourceFiles.length, 25)} source files\n\n${bugReports.join('\n\n---\n\n')}`;
+            postToSidebar('Project Bug Report', combinedReport, 'findBugsInProject');
         });
     }
     catch (err) {
-        postToSidebar('Bug Scan Error', 'Failed to run fast bug scan: ' + String(err), 'findBugsInProject');
+        postToSidebar('Bug Scan Error', 'Failed to scan project for bugs: ' + String(err), 'findBugsInProject');
         console.error(err);
     }
 }
