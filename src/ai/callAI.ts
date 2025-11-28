@@ -1,9 +1,6 @@
 /**
- * Advanced AI server request module for production readiness.
- * - Health-check and gating before all requests.
- * - Actionable, friendly error messages.
- * - Robust timeout/socket handling and exponential backoff.
- * - Notifies frontend/user if AI backend is not ready before sending request.
+ * callAI.ts — client wrapper with timeouts removed for long-running backend requests.
+ * NOTE: Removing client-side timeouts causes callers to wait indefinitely for server responses.
  */
 
 import { IncomingMessage } from 'http';
@@ -38,10 +35,18 @@ const log = {
   },
 };
 
+// Create a reusable HTTP agent (keep-alive) to reduce socket churn
+let keepAliveAgent: any | null = null;
+function getAgent() {
+  if (!keepAliveAgent) {
+    const http = require('http');
+    keepAliveAgent = new http.Agent({ keepAlive: true, maxSockets: 10 });
+  }
+  return keepAliveAgent;
+}
+
 /**
  * Health check for the AI server before requests.
- * Waits up to `maxWaitMs` for model_loaded === true, else returns false.
- * Returns a status object with extra detail if needed.
  */
 export async function pollAIHealth(maxWaitMs = 12000): Promise<{ healthy: boolean; status?: string; error?: string }> {
   const pollInterval = 1000;
@@ -51,14 +56,15 @@ export async function pollAIHealth(maxWaitMs = 12000): Promise<{ healthy: boolea
 
   while (elapsed < maxWaitMs) {
     try {
-      const http = await import('http');
-      await new Promise((resolve, reject) => {
+      const http = require('http');
+      await new Promise((resolve) => {
         const options: any = {
           hostname: 'localhost',
           port: 8000,
           path: '/health',
           method: 'GET',
           timeout: 4000,
+          agent: getAgent()
         };
         const req = http.request(options, (res: IncomingMessage) => {
           let data = '';
@@ -80,10 +86,10 @@ export async function pollAIHealth(maxWaitMs = 12000): Promise<{ healthy: boolea
               ) {
                 return resolve(true);
               }
-              return resolve(false);
             } catch {
-              return resolve(false);
+              // parse error -> treat as not ready
             }
+            return resolve(false);
           });
         });
         req.on('error', () => resolve(false));
@@ -114,61 +120,61 @@ export async function pollAIHealth(maxWaitMs = 12000): Promise<{ healthy: boolea
   return { healthy: false, status: lastStatus, error: lastError };
 }
 
-// Helper: Make HTTP request with error handling, retries, and logging.
+// Helper: sleep with jitter
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function jitter(ms: number) {
+  return Math.floor(ms + (Math.random() * Math.min(300, ms)));
+}
+
+// Helper: Make HTTP request WITHOUT per-request socket timeout (client-side).
+// The underlying socket may still be reset if the server crashes; caller will observe a socket error.
 async function httpRequest(
   options: any,
   requestBody: string,
-  responseTimeoutMs = 30000,
-  maxRetries = 0
 ): Promise<string> {
-  const http = await import('http');
-  let lastError: any = null;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  const http = require('http');
+  const agent = getAgent();
+  options = { ...options, agent };
+
+  return await new Promise<string>((resolve, reject) => {
     try {
-      return await new Promise<string>((resolve, reject) => {
-        const req = http.request(
-          { ...options, timeout: responseTimeoutMs },
-          (res: IncomingMessage) => {
-            let data = '';
-            res.on('data', (chunk: any) => (data += chunk));
-            res.on('end', () => {
-              if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
-                log.warn(`HTTP ${res.statusCode}: ${res.statusMessage}`);
-                return reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage ?? ''}. Response: ${data}`));
-              }
-              resolve(data);
-            });
+      const req = http.request(options, (res: IncomingMessage) => {
+        let data = '';
+        res.on('data', (chunk: any) => (data += chunk));
+        res.on('end', () => {
+          if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+            log.warn(`HTTP ${res.statusCode}: ${res.statusMessage}`);
+            return reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage ?? ''}. Response: ${data}`));
           }
-        );
-        req.on('error', (error: any) => {
-          log.error('Request error:', error);
-          reject(error);
+          resolve(data);
         });
-        req.on('timeout', () => {
-          log.warn(`Request timed out after ${responseTimeoutMs} ms`);
-          req.destroy();
-          reject(new Error(`Request timeout after ${responseTimeoutMs} ms.`));
-        });
-        req.write(requestBody);
-        req.end();
       });
+
+      req.on('error', (error: any) => {
+        reject(error);
+      });
+
+      // Best-practice: set 'Connection: keep-alive'
+      if (!options.headers) options.headers = {};
+      options.headers['Connection'] = options.headers['Connection'] || 'keep-alive';
+
+      // Write and end
+      req.write(requestBody);
+      req.end();
     } catch (err) {
-      lastError = err;
-      log.warn(`Attempt ${attempt + 1} failed:`, err);
-      if (attempt < maxRetries) {
-        log.info(`Retrying AI server request (attempt ${attempt + 2}/${maxRetries + 1})...`);
-        await new Promise((r) => setTimeout(r, 700 * (attempt + 1)));
-      }
+      reject(err);
     }
-  }
-  throw lastError ?? new Error('Unknown error in AI call');
+  });
 }
 
 /**
- * Core AI Call (generation) with full health-check gating, smart timeout management,
- * exponential retry, and rich error messages for UI display.
+ * Core AI Call (generation) with health-check gating.
+ * NOTE: client-side timeouts removed as requested — caller waits until server responds or socket errors.
  */
 export async function callAI(prompt: string): Promise<string> {
+  // Health gating
   let healthStatus;
   try {
     healthStatus = await pollAIHealth(20000); // Wait up to 20s for AI server
@@ -180,16 +186,16 @@ export async function callAI(prompt: string): Promise<string> {
   if (!healthStatus.healthy) {
     const serverStatus = healthStatus?.status || "unavailable";
     const serverError = healthStatus?.error || "";
-    
+
     let userMessage = '';
     if (serverStatus === 'mock_mode') {
-      userMessage = 
+      userMessage =
         "The AI engine is running in mock mode. Results may not reflect real analysis until the model loads.";
     } else if (serverStatus === 'degraded') {
-      userMessage = 
+      userMessage =
         "The AI engine is in a degraded state due to import or loading errors. Live code analysis may not work.";
     } else {
-      userMessage = 
+      userMessage =
         "The AI engine is still loading and not ready. Please wait up to a minute, then retry your query.";
     }
     if (serverError) userMessage += `\nDiagnostic detail: ${serverError}`;
@@ -200,25 +206,27 @@ export async function callAI(prompt: string): Promise<string> {
     throw err;
   }
 
+  // Retry policy for transient connection errors (socket resets). No request timeout.
   const maxAttempts = 3;
-  const baseTimeout = 30000;
-  for (let attempts = 0; attempts < maxAttempts; attempts++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const timeout = attempts === 0 ? baseTimeout * 2 : baseTimeout + (attempts * 5000);
-      const options = {
+      const body = JSON.stringify({ prompt });
+      const options: any = {
         hostname: 'localhost',
         port: 8000,
         path: '/generate',
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(JSON.stringify({ prompt })),
-        },
-        timeout
+          'Content-Length': Buffer.byteLength(body),
+          'Connection': 'keep-alive',
+        }
       };
-      log.info(`Sending request to AI server (attempt ${attempts + 1}/${maxAttempts}, timeout: ${timeout}ms)...`);
-      log.debug('Prompt:', (prompt || '').substring(0, 200).replace(/\n/g, ' '));
-      const rawResponse = await httpRequest(options, JSON.stringify({ prompt }), timeout, 0 /* no inner retry */);
+
+      log.info(`Sending request to AI server (attempt ${attempt + 1}/${maxAttempts})...`);
+      log.debug('Prompt (truncated):', (prompt || '').substring(0, 200).replace(/\n/g, ' '));
+
+      const rawResponse = await httpRequest(options, body);
       let parsedData: AIGenerationResponse;
       try {
         parsedData = JSON.parse(rawResponse || '{}');
@@ -230,7 +238,7 @@ export async function callAI(prompt: string): Promise<string> {
         errObj.userMessage = parseUserMsg;
         throw errObj;
       }
-      // Prefer generated_text, fallback to legacy generated_code
+
       const generated = parsedData.generated_text ?? parsedData.generated_code;
       if (typeof generated === 'string') {
         let code = generated;
@@ -246,40 +254,38 @@ export async function callAI(prompt: string): Promise<string> {
       }
       throw new Error(`Unexpected AI response shape: ${JSON.stringify(parsedData)}`);
     } catch (err: any) {
-      // Friendly handling for timeouts/sockets
-      let userMessage = '';
-      if (String(err).includes('Request timeout')) {
-        log.warn(`[WARN] Request timed out (attempt ${attempts + 1}/${maxAttempts})`);
-        userMessage = "AI server did not respond in time. It may still be starting or busy. Please wait 1–2 minutes and try again.";
-      } else if (
-        String(err).includes('ECONNRESET') ||
-        String(err).includes('socket hang up')
-      ) {
-        log.error(`[ERROR] Socket hang up (attempt ${attempts + 1}/${maxAttempts})`);
-        userMessage = "AI server closed the connection. It may be restarting or updating models. Please re-run your query soon.";
+      const errStr = String(err || '');
+      log.warn(`Attempt ${attempt + 1} failed:`, errStr);
+
+      const isSocketReset = errStr.includes('ECONNRESET') || errStr.includes('socket hang up') || errStr.includes('socket hangup') || errStr.includes('socket hang');
+
+      if (isSocketReset && attempt < maxAttempts - 1) {
+        const backoff = jitter(500 * Math.pow(2, attempt));
+        log.info(`Transient socket error detected, retrying after ${backoff}ms (attempt ${attempt + 2}/${maxAttempts})...`);
+        await sleep(backoff);
+        continue;
       }
-      if (userMessage && attempts === maxAttempts - 1) {
+
+      // If error is user-friendly, rethrow
+      if (err && (err.userFriendly === true || /AI Server Error|invalid response/i.test(errStr))) {
+        throw err;
+      }
+
+      // Final attempt: provide actionable user message
+      if (attempt === maxAttempts - 1) {
+        const userMessage = "AI backend is not responding as expected. Ensure it is running and reachable (http://localhost:8000).";
         const finalErr: UserNotifiableError = new Error(userMessage);
         finalErr.userFriendly = true;
         finalErr.userMessage = userMessage;
-        log.warn(userMessage);
+        log.warn(userMessage, errStr);
         throw finalErr;
       }
 
-      if (!userMessage && attempts === maxAttempts - 1) {
-        const finalErr: UserNotifiableError = new Error(
-          "AI server failed multiple times—please check if the backend is running and healthy."
-        );
-        finalErr.userFriendly = true;
-        finalErr.userMessage = "AI backend is not responding as expected. Please check logs or restart the backend.";
-        throw finalErr;
-      }
-      // Short backoff before retry
-      await new Promise(r => setTimeout(r, 700 * (attempts + 1)));
+      await sleep(jitter(400 * Math.pow(2, attempt)));
       continue;
     }
   }
-  // Should never reach here
+
   const failErr: UserNotifiableError = new Error(
     "AI server failed to respond after multiple attempts. Please check backend logs."
   );
@@ -289,7 +295,7 @@ export async function callAI(prompt: string): Promise<string> {
 }
 
 /**
- * Embedding requests - same robust pattern & error handling
+ * Embedding requests - no client-side timeouts here either.
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
   let healthStatus;
@@ -309,8 +315,7 @@ export async function generateEmbedding(text: string): Promise<number[]> {
   const maxAttempts = 2;
   for (let attempts = 0; attempts < maxAttempts; attempts++) {
     try {
-      const requestData = JSON.stringify({ text });
-      const timeout = attempts === 0 ? 20000 : 10000; // Slightly increased timeout for embeddings
+      const requestData = JSON.stringify({ text: text.substring(0, 1000) });
       const options = {
         hostname: 'localhost',
         port: 8000,
@@ -319,46 +324,38 @@ export async function generateEmbedding(text: string): Promise<number[]> {
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(requestData),
-        },
-        timeout
+          'Connection': 'keep-alive'
+        }
       };
       log.info(`Requesting embedding from AI server (attempt ${attempts + 1}/${maxAttempts})...`);
-      const rawResponse = await httpRequest(options, requestData, timeout, 0);
-      let parsedData: AIEmbeddingResponse;
-      try {
-        parsedData = JSON.parse(rawResponse || '{}');
-      } catch (err) {
-        log.error('Embedding response parse error', err, rawResponse);
-        throw new Error(`Embedding parse error: ${err} Raw response: ${rawResponse}`);
-      }
-      if (parsedData.embedding && Array.isArray(parsedData.embedding)) {
-        return parsedData.embedding;
-      }
-      if (parsedData.error) {
-        throw new Error(`Embedding Error: ${parsedData.error}`);
-      }
-      throw new Error(`Unexpected embedding response format: ${JSON.stringify(parsedData)}`);
+      const rawResponse = await httpRequest(options, requestData);
+      const parsedData: AIEmbeddingResponse = JSON.parse(rawResponse || '{}');
+      const embedding = parsedData.embedding;
+      if (Array.isArray(embedding)) return embedding;
+      if (parsedData.error) throw new Error(`Embedding Error: ${parsedData.error}`);
+      throw new Error('Unexpected embedding response format');
     } catch (err: any) {
-      if (String(err).includes('Request timeout') && attempts === maxAttempts - 1) {
-        throw new Error("Embedding server did not respond in time. Please try again later.");
+      const msg = String(err || '');
+      const isSocketReset = msg.includes('ECONNRESET') || msg.includes('socket hang up');
+      if (isSocketReset && attempts < maxAttempts - 1) {
+        await sleep(jitter(500 * (attempts + 1)));
+        continue;
       }
-      if (
-        String(err).includes('ECONNRESET') ||
-        String(err).includes('socket hang up')
-      ) {
-        throw new Error("Embedding server closed the connection. It may be restarting.");
+      if (attempts < maxAttempts - 1) {
+        await sleep(jitter(500 * (attempts + 1)));
+        continue;
       }
-      await new Promise(r => setTimeout(r, 700 * (attempts + 1)));
-      continue;
+      throw err;
     }
   }
+
   throw new Error("Embedding server failed multiple times. Please check backend logs.");
 }
 
 // Health check: lightweight, returns boolean only
 export async function checkAIHealth(): Promise<boolean> {
   try {
-    const http = await import('http');
+    const http = require('http');
     return await new Promise<boolean>((resolve) => {
       const options: any = {
         hostname: 'localhost',
@@ -366,6 +363,7 @@ export async function checkAIHealth(): Promise<boolean> {
         path: '/health',
         method: 'GET',
         timeout: 4000,
+        agent: getAgent()
       };
       const req = http.request(options, (res: IncomingMessage) => {
         let data = '';

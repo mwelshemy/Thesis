@@ -7,6 +7,7 @@ import logging
 import asyncio
 import os
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 
 # Keep heavy ML imports inside load_models() to avoid import-time crashes.
 # This file intentionally uses lazy imports and robust fallbacks so uvicorn
@@ -31,7 +32,11 @@ MODEL_CONFIG = {
     "max_length": 2048,
     "max_new_tokens": 512,
     "temperature": 0.7,
-    "embedding_dim": 4096
+    "embedding_dim": 4096,
+    # Safety timeout for generation (seconds)
+    "generation_timeout_s": 30,
+    # Allow generation concurrency or serialize
+    "allow_concurrent_generations": False
 }
 
 # Globals
@@ -40,6 +45,11 @@ model = None
 embedding_model = None
 model_loaded: bool = False
 _model_import_error: Optional[str] = None
+
+# Lock to serialize heavy generation (optional)
+_generation_lock = asyncio.Lock()
+# ThreadPool to run synchronous model.generate off the event loop
+_thread_pool = ThreadPoolExecutor(max_workers=1)
 
 class CodeRequest(BaseModel):
     prompt: str
@@ -177,27 +187,22 @@ async def health():
     status = "healthy" if model_loaded else ("mock_mode" if _model_import_error else "degraded")
     return {"status": status, "model_loaded": model_loaded, "import_error": _model_import_error}
 
-@app.post("/generate")
-async def generate(req: CodeRequest):
+# Internal helper: run the blocking generation in a thread and return the text
+def _sync_generate(prompt: str) -> str:
     """
-    Main generation endpoint. Returns {'generated_text': ...}.
-    If model isn't ready, returns a mock response.
+    Synchronous generation wrapper to be executed in a ThreadPoolExecutor.
+    Keeps local imports inside to avoid circular import issues at module load time.
     """
-    global model, tokenizer, model_loaded
-
-    if not model_loaded or model is None or tokenizer is None:
-        logger.info("Model not ready; returning mock generate response")
-        return {"generated_text": get_mock_response(req.prompt, error=_model_import_error or "")}
-
-    if not hasattr(model, "generate"):
-        logger.warning("Model does not support .generate(); returning mock")
-        return {"generated_text": get_mock_response(req.prompt)}
-
     try:
-        import torch  # local import
-
+        # Local import to avoid top-level dependency issues if not loaded
+        from transformers import AutoTokenizer  # type: ignore
+        # If model does not support .generate -> fallback
+        if not model or not hasattr(model, "generate") or tokenizer is None:
+            logger.warning("No model.generate available in sync path; returning mock")
+            return get_mock_response(prompt, error=_model_import_error or "")
+        import torch  # type: ignore
         inputs = tokenizer(
-            req.prompt,
+            prompt,
             return_tensors="pt",
             truncation=True,
             max_length=MODEL_CONFIG["max_length"],
@@ -208,16 +213,62 @@ async def generate(req: CodeRequest):
 
         gen = model.generate(
             input_ids,
-            max_new_tokens=MODEL_CONFIG["max_new_tokens"],
-            temperature=MODEL_CONFIG["temperature"],
+            max_new_tokens=MODEL_CONFIG.get("max_new_tokens", 512),
+            temperature=MODEL_CONFIG.get("temperature", 0.7),
             do_sample=True,
             pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
         )
         output = tokenizer.decode(gen[0], skip_special_tokens=True)
-        return {"generated_text": output}
+        return output
     except Exception as e:
-        logger.exception("Generation error; falling back to mock")
-        return {"generated_text": get_mock_response(req.prompt, error=str(e))}
+        logger.exception("Sync generation failure")
+        return get_mock_response(prompt, error=str(e))
+
+@app.post("/generate")
+async def generate(req: CodeRequest):
+    """
+    Main generation endpoint. Uses a timeout and fallback so requests don't hang forever.
+    If model isn't ready, returns a mock response quickly.
+    """
+    global model_loaded
+
+    # If model not loaded, return mock immediately (keeps client responsive)
+    if not model_loaded or model is None or tokenizer is None:
+        logger.info("Model not ready; returning mock generate response")
+        return {"generated_text": get_mock_response(req.prompt, error=_model_import_error or "")}
+
+    # If server is configured to serialize generation, acquire lock
+    lock = _generation_lock if not MODEL_CONFIG.get("allow_concurrent_generations", True) else None
+
+    try:
+        if lock:
+            await lock.acquire()
+            logger.debug("Acquired generation lock")
+
+        loop = asyncio.get_running_loop()
+        gen_timeout = MODEL_CONFIG.get("generation_timeout_s", 30)
+
+        logger.info("Starting generation (offloaded to thread)...")
+        try:
+            # Run the synchronous generation function in a thread with timeout
+            future = loop.run_in_executor(_thread_pool, _sync_generate, req.prompt)
+            output = await asyncio.wait_for(future, timeout=gen_timeout)
+            logger.info("Generation completed successfully")
+            return {"generated_text": output}
+        except asyncio.TimeoutError:
+            logger.warning("Generation timed out after %s seconds", gen_timeout)
+            # Attempt to cancel the running thread future is not trivial; just return a controlled mock/failure
+            return {"generated_text": get_mock_response(req.prompt, error=f"Generation timed out after {gen_timeout}s"), "error": "timeout"}
+        except Exception as e:
+            logger.exception("Generation failed with exception")
+            return {"generated_text": get_mock_response(req.prompt, error=str(e)), "error": str(e)}
+    finally:
+        if lock:
+            try:
+                lock.release()
+                logger.debug("Released generation lock")
+            except Exception:
+                pass
 
 @app.post("/embed")
 async def embed(req: EmbeddingRequest):
@@ -274,7 +325,6 @@ async def analyze(req: AnalysisRequest):
 async def generate_code_alias(req: CodeRequest):
     # alias that mirrors older API expecting 'generated_code'
     resp = await generate(req)
-    # translate generated_text -> generated_code for older clients
     return {"generated_code": resp.get("generated_text"), **({k: v for k, v in resp.items() if k != "generated_text"})}
 
 @app.post("/generate_embedding")

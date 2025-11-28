@@ -537,19 +537,100 @@
         const buildIndex = document.getElementById('build-index');
         const langRun = document.getElementById('lang-run');
         const semanticSearchRun = document.getElementById('semantic-search-run');
+        const analyzeTypeSelect = document.getElementById('analyze-type');
+        const analyzeScopeSelect = document.getElementById('analyze-scope');
 
-        if (analyzeRun) safeAddListener(analyzeRun, 'click', () => {
-            const code = (document.getElementById('analyze-code')?.value || '').trim();
-            if (!code) { showNotification('Please enter code to analyze', 'warning'); return; }
-            const filePath = getSelectedFilePath();
-            sendMessage('deepAnalysis', { code, path: filePath });
+        // Update analyze button label to reflect selected type
+        function updateAnalyzeButtonLabel() {
+            try {
+                const sel = analyzeTypeSelect ? analyzeTypeSelect.value : 'analyze';
+                const btn = document.getElementById('analyze-run');
+                if (!btn) return;
+                let label = 'Analyze Code';
+                if (sel === 'findBugs') label = 'Find Bugs';
+                if (sel === 'improve') label = 'Suggest Improvements';
+                if (sel === 'summarize') label = 'Summarize File';
+                btn.innerText = '';
+                const icon = document.createElement('span');
+                icon.className = 'btn-icon';
+                icon.textContent = '🔬';
+                btn.appendChild(icon);
+                btn.appendChild(document.createTextNode(' ' + label));
+            } catch (e) { /* ignore */ }
+        }
+
+        if (analyzeTypeSelect) safeAddListener(analyzeTypeSelect, 'change', updateAnalyzeButtonLabel);
+        if (analyzeScopeSelect) safeAddListener(analyzeScopeSelect, 'change', () => {
+            // when scope changes, keep UI in sync (no-op for now)
+        });
+        updateAnalyzeButtonLabel();
+
+        if (analyzeRun) safeAddListener(analyzeRun, 'click', async () => {
+            try {
+                const type = (document.getElementById('analyze-type')?.value || 'analyze');
+                const scope = (document.getElementById('analyze-scope')?.value || 'current');
+                const code = (document.getElementById('analyze-code')?.value || '').trim();
+                const selectedFile = getSelectedFilePath();
+
+                // Visual feedback
+                try {
+                    const spinner = document.getElementById('analyze-spinner');
+                    if (spinner) spinner.classList.remove('hidden');
+                    analyzeRun.disabled = true;
+                } catch (e) {}
+
+                // If user explicitly selected project scope (or scope selector says project), call project-level commands
+                const projectScopeSelected = (scope === 'project' || selectedFile === 'project');
+
+                if (projectScopeSelected) {
+                    // Map analysis types to project scopes
+                    if (type === 'findBugs') {
+                        postToExtension({ command: 'analyzeProject', scope: 'bugs' });
+                    } else if (type === 'summarize') {
+                        postToExtension({ command: 'analyzeProject', scope: 'summary' });
+                    } else {
+                        // default to full analysis
+                        postToExtension({ command: 'analyzeProject', scope: 'full' });
+                    }
+                    return;
+                }
+
+                // File-level or selection-level actions: map to extension commands
+                const actionMap = {
+                    'analyze': 'explainCode',
+                    'findBugs': 'findBugs',
+                    'improve': 'suggestImprovements',
+                    'summarize': 'summarizeFile'
+                };
+                const action = actionMap[type] || 'explainCode';
+
+                // Build payload: include code if user pasted it; include path if user picked a specific file
+                const payload = {};
+                if (code) payload.code = code;
+                if (selectedFile && selectedFile !== 'project') payload.path = selectedFile;
+
+                // Use run message so sidebar-view-provider executes the registered command
+                postToExtension({ command: 'run', action: action, payload });
+
+            } catch (err) {
+                console.error('analyze-run handler failed', err);
+                showNotification('Failed to start analysis', 'error', String(err));
+            } finally {
+                // spinner will be hidden when extension sends response; but ensure button re-enabled after a short fallback
+                setTimeout(() => {
+                    try {
+                        const spinner = document.getElementById('analyze-spinner');
+                        if (spinner) spinner.classList.add('hidden');
+                        analyzeRun.disabled = false;
+                    } catch (e) {}
+                }, 2000);
+            }
         });
 
         if (searchRun) safeAddListener(searchRun, 'click', () => {
             const query = (document.getElementById('search-query')?.value || '').trim();
             if (!query) { showNotification('Find code by keywords, function names, or patterns', 'warning'); return; }
 
-            // Visual feedback: clear and show loading in text-search-results
             const container = document.getElementById('text-search-results') || document.getElementById('search-results');
             if (container) {
                 const rc = container.querySelector('.results-content');
@@ -568,7 +649,6 @@
             const language = document.getElementById('lang-select')?.value || '';
             if (!language) { showNotification('Please select a language', 'warning'); return; }
 
-            // Visual feedback: clear and show loading in lang-search-results
             const container = document.getElementById('lang-search-results');
             if (container) {
                 const rc = container.querySelector('.results-content');
@@ -583,7 +663,6 @@
             const query = (document.getElementById('semantic-search-query')?.value || '').trim();
             if (!query) { showNotification('Find code by keywords, function names, or patterns', 'warning'); return; }
 
-            // Visual feedback: reuse text-search-results
             const container = document.getElementById('text-search-results') || document.getElementById('search-results');
             if (container) {
                 const rc = container.querySelector('.results-content');
