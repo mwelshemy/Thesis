@@ -55,7 +55,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
 
       const pattern = new vscode.RelativePattern(vscode.workspace.workspaceFolders[0], '**/*');
       const files = await vscode.workspace.findFiles(pattern, '**/node_modules/**');
-      
+
       this._projectFiles = files.map(file => ({
         label: file.fsPath.split(/[\\/]/).pop() || file.fsPath,
         path: file.fsPath,
@@ -177,8 +177,17 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
                 payload
               );
             } catch (e: any) {
+              // ENHANCED ERROR HANDLER for ECONNRESET/socket/network errors
               const errorMessage = String(e?.message || '');
-              if (e && errorMessage && /not found/.test(errorMessage)) {
+              if (e && (e.code === 'ECONNRESET' || /socket hang up|ECONNRESET|ECONNREFUSED/i.test(errorMessage))) {
+                this.showAIAnalysis(
+                  'AI Server Error',
+                  'Unable to communicate with the AI server (connection lost: socket hang up or ECONNRESET).<br>Please check that your local/remote AI server is running and reachable from this machine.<br>If you\'re behind a VPN, proxy, or firewall, ensure outgoing connections are permitted.<br><br><strong>Technical details:</strong><br><code>' +
+                    this._escapeHtml(errorMessage) +
+                  '</code>',
+                  action
+                );
+              } else if (e && errorMessage && /not found/.test(errorMessage)) {
                 this.showAIAnalysis(
                   'Command not found',
                   `The command vs-code-ai-extension.${action} is not registered.`,
@@ -193,15 +202,29 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
               } else {
                 this.showAIAnalysis(
                   'Error',
-                  `Failed to run ${action}: ${String(e)}`,
+                  `Failed to run ${action}: ${this._escapeHtml(errorMessage)}`,
                   action
                 );
               }
             }
             return;
           }
-        } catch (err) {
-          console.error('Message handler error', err);
+        } catch (err: any) {
+          const errorMsg = String(err?.message || err);
+          if (errorMsg && /ECONNRESET|ECONNREFUSED|socket hang up/i.test(errorMsg)) {
+            this.showAIAnalysis(
+              'AI Server Error',
+              'Lost connection to the AI server. Please check that your backend is running.<br>Technical error: <code>' +
+                this._escapeHtml(errorMsg) +
+              '</code>'
+            );
+          } else {
+            console.error('Message handler error', err);
+            this.showAIAnalysis(
+              'Unexpected Error',
+              'Unexpected error in message handling: <br><code>' + this._escapeHtml(errorMsg) + '</code>'
+            );
+          }
         }
       }
     );
@@ -236,7 +259,6 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
       if (filePath === 'project') {
         return;
       }
-      
       const doc = await vscode.workspace.openTextDocument(filePath);
       await vscode.window.showTextDocument(doc);
     } catch (err) {
@@ -249,10 +271,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
       if (filePath === 'project') {
         return;
       }
-      
+
       const doc = await vscode.workspace.openTextDocument(filePath);
       const editor = await vscode.window.showTextDocument(doc);
-      
+
       // Reveal the line and set cursor position
       const position = new vscode.Position(lineNumber - 1, 0);
       editor.selection = new vscode.Selection(position, position);
@@ -377,7 +399,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
       );
 
       panel.webview.html = this._getDiffHtml(panel.webview, original, modified);
-      
+
       const onDispose = panel.onDidDispose(() => {});
       this._disposables.push(onDispose);
     } catch (err) {
@@ -420,11 +442,11 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
     try {
       let htmlContent = fs.readFileSync(htmlPath, 'utf8');
       let scriptContent = fs.readFileSync(scriptPath, 'utf8');
-      
+
       // Replace placeholders with actual values
       htmlContent = htmlContent.replace(/\${nonce}/g, nonce);
       htmlContent = htmlContent.replace(/\${webview\.cspSource}/g, webview.cspSource);
-      
+
       // Convert resource paths to webview URIs
       const resourceFiles = [
         'codesense-logo.png', 'chat-icon.png', 'analyze-icon.png', 'search-icon.png',
@@ -436,7 +458,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
       resourceFiles.forEach(filename => {
         const resourcePath = vscode.Uri.joinPath(this._extensionUri, 'resources', filename);
         const webviewUri = webview.asWebviewUri(resourcePath);
-        
+
         // Replace all occurrences of this resource path in the HTML
         const placeholder = `\${webview.cspSource}../../resources/${filename}`;
         htmlContent = htmlContent.replace(new RegExp(this._escapeRegExp(placeholder), 'g'), webviewUri.toString());
@@ -447,7 +469,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
         '<!-- SCRIPT_PLACEHOLDER -->', 
         `<script nonce="${nonce}">${scriptContent}</script>`
       );
-      
+
       return htmlContent;
     } catch (error) {
       console.error('Error loading HTML template:', error);
@@ -533,9 +555,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
     }
     return text;
   }
-  
 
   private _escapeHtml(unsafe: string): string {
+    if (!unsafe) return '';
     return unsafe
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -564,5 +586,4 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
       console.error('SidebarViewProvider dispose error', err);
     }
   }
-  
 }

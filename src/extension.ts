@@ -14,6 +14,7 @@ import {
   clearSearchIndex,
   initializeSearch,
   searchByLanguage,
+  fullTextSearch
 } from './search';
 
 let sidebarProvider: SidebarViewProvider | undefined;
@@ -391,46 +392,77 @@ export async function handleSemanticSearchCommand(payload?: { query?: string }):
 
 export async function handleSearchProjectCommand(payload?: { query?: string }) {
   try {
-    const q = payload?.query || '';
-    
-    console.log(`RAG Project Search: "${q}"`);
-    
-    // Use 10% similarity threshold for project search during testing
-    const results = await runRetrievalPipeline(q, 10, 0.1);
-    
-    console.log(`RAG Project Search found ${results.length} results for "${q}"`);
-    
-    if (results.length === 0) {
-      postToSidebar('Search Results', 
-        `No matches found for "${q}" (minimum 10% similarity)\n\nTry:\n• Using more specific search terms\n• Describing what the code does\n• Using exact function/class names\n• Checking if embeddings were generated for your project`, 
-        'searchProject');
+    const q = (payload?.query || '').trim();
+
+    if (!q) {
+      postToSidebar('Search Results', 'Please enter a search query.', 'searchProject');
       return;
     }
 
-    const formattedResults = {
-      type: 'semanticResults',
-      title: 'Semantic Search Results',
-      summary: `Found ${results.length} matches with ≥10% similarity for "${q}"`,
-      query: q,
-      snippets: results.map((r) => ({
-        fileName: r.filename,
-        filePath: r.filepath,
-        language: r.language,
-        lineNumber: r.lineNumber,
-        confidence: `${Math.round((r.relevance || 0) * 100)}%`,
-        similarity: r.relevance?.toFixed(3),
-        preview: r.content.substring(0, 150) + '...',
-        content: r.content
-      }))
-    };
-    
-    postToSidebar('Search Results', formattedResults, 'searchProject');
+    console.log(`Full-text Project Search: "${q}"`);
+
+    // 1) Run full-text substring search (works like Ctrl+F across files)
+    const textResults = await fullTextSearch(q, 200, true);
+    console.log(`Full-text search found ${textResults.length} results for "${q}"`);
+
+    if (textResults && textResults.length > 0) {
+      const formattedResults = {
+        type: 'fileList',
+        title: 'Text Search Results',
+        summary: `Found ${textResults.length} files containing "${q}"`,
+        files: textResults.map(r => ({
+          fileName: r.fileName,
+          filePath: r.filePath,
+          language: r.language,
+          lineCount: r.lineCount || 0
+        }))
+      };
+
+      // Post so the sidebar renders into the text-search-results section
+      postToSidebar('Search Results', formattedResults, 'searchProject');
+      return;
+    }
+
+    // 2) If no plain text matches, optionally fall back to semantic search (RAG)
+    try {
+      const results = await runRetrievalPipeline(q, 10, 0.1);
+      console.log(`RAG fallback search found ${results.length} results for "${q}"`);
+
+      if (!results || results.length === 0) {
+        postToSidebar('Search Results',
+          `No matches found for "${q}" using text search and semantic fallback.\n\nTry:\n• Using different keywords\n• Searching by function/class names\n• Building the index (Build Index)`,
+          'searchProject'
+        );
+        return;
+      }
+
+      const formattedResults = {
+        type: 'semanticSearchResults',
+        title: 'Semantic Search Results',
+        summary: `Found ${results.length} matches for "${q}" (semantic fallback)`,
+        query: q,
+        results: results.map((result) => ({
+          fileName: result.filename,
+          filePath: result.filepath,
+          language: result.language,
+          lineNumber: result.lineNumber,
+          confidence: `${Math.round((result.relevance || 0) * 100)}%`,
+          similarity: result.relevance?.toFixed(3),
+          codeSnippet: result.content,
+          preview: result.content?.substring(0, 150) + '...'
+        }))
+      };
+
+      postToSidebar('Search Results', formattedResults, 'searchProject');
+    } catch (ragErr) {
+      console.error('Semantic fallback failed:', ragErr);
+      postToSidebar('Search Error', 'Search failed: ' + String(ragErr), 'searchProject');
+    }
   } catch (err: any) {
-    console.error(`RAG Project Search failed for "${payload?.query}":`, err);
-    postToSidebar('Search Error', 'Semantic search failed: ' + String(err), 'searchProject');
+    console.error(`Search Project failed for "${payload?.query}":`, err);
+    postToSidebar('Search Error', 'Search failed: ' + String(err), 'searchProject');
   }
 }
-
 /** RAG Diagnostic Commands */
 export async function handleRAGDiagnosticsCommand(): Promise<void> {
   try {
@@ -1466,7 +1498,6 @@ Respond with a JSON object:
 }
 
 IMPORTANT: Return ONLY valid JSON, no other text.`;
-
     const response = await callAI(prompt);
     
     // Parse JSON response

@@ -1,157 +1,118 @@
 import { CodeSnippet } from "./retrieve";
-import { calculateCosineSimilarity } from "./similarity";
 import { analyzeQuery } from "./queryUnderstanding";
 
 /**
- * SMART ranking - prioritize content that actually matches the query intent
+ * Strong exact-symbol boosts, file name boosts, identifier boosts, and diagnostic labels.
+ * If a snippet is detected as an exact definition of the sought symbol, set high relevance.
  */
+
+function normalizeToken(t?: string): string {
+  return (t || '').replace(/[^A-Za-z0-9_]/g, '').toLowerCase();
+}
+
+// Check various ways a snippet might be an exact symbol definition
+function isExactDefinition(snippet: CodeSnippet, candidateVariants: string[]): boolean {
+  // 1) symbolName recorded by earlier pipeline
+  if (snippet.symbolName) {
+    for (const v of candidateVariants) {
+      if (normalizeToken(snippet.symbolName) === normalizeToken(v)) return true;
+    }
+  }
+  // 2) symbolSignature contains exact token (class|function|def NAME)
+  if (snippet.symbolSignature) {
+    for (const v of candidateVariants) {
+      const rx = new RegExp(`(class|function|def|interface|type)\\s+${v}\\b`, 'i');
+      if (rx.test(snippet.symbolSignature)) return true;
+    }
+  }
+  // 3) filename matches
+  if (snippet.filename) {
+    for (const v of candidateVariants) {
+      if (normalizeToken(snippet.filename.replace(/\.[^.]+$/, '')) === normalizeToken(v)) return true;
+    }
+  }
+  return false;
+}
+
 export function rankCandidates(snippets: CodeSnippet[], query?: string): CodeSnippet[] {
-  if (!query) {
-    return snippets.sort((a, b) => (b.relevance ?? 0) - (a.relevance ?? 0));
-  }
+  if (!query) return snippets.sort((a, b) => (b.relevance ?? 0) - (a.relevance ?? 0));
 
-  console.log(`🎯 Smart ranking for: "${query}"`);
-  console.log(`📊 Initial semantic score: ${snippets[0]?.relevance?.toFixed(3)}`);
-  
   const queryLower = query.toLowerCase();
-  const queryAnalysis = analyzeQuery(queryLower); // Use the imported function
-  
-  const ranked = snippets.map(snippet => {
-    let score = snippet.relevance || 0;
-    const content = snippet.content;
-    const contentLower = content.toLowerCase();
-    const filePathLower = snippet.filepath.toLowerCase();
-    
-    // Use query analysis for smarter boosting
-    if (queryAnalysis.isAlgorithmSearch && containsSortingCode(content)) {
-      score += 0.8; // Massive boost for actual sorting code
-      console.log(`   🚀 MASSIVE BOOST: Found actual sorting code`);
+  const queryAnalysis = analyzeQuery(queryLower);
+
+  // Precompute candidate tokens: prioritize likely symbol tokens (strip words like 'function','find','where')
+  const rawTokens = query.split(/\W+/).filter(Boolean).filter(t => !/function|find|where|is|the|a|an|search/i.test(t));
+  const candidateToken = rawTokens.reverse().find(t => /[A-Za-z_]\w*/.test(t)) || rawTokens[0] || '';
+  const variants = candidateToken ? (function (tok: string) {
+    const t = tok.replace(/[^A-Za-z0-9_]/g, '');
+    const parts = t.match(/[A-Z]?[a-z0-9]+/g) || [t];
+    const snake = parts.map(p => p.toLowerCase()).join('_');
+    const kebab = parts.map(p => p.toLowerCase()).join('-');
+    const camel = parts[0].toLowerCase() + parts.slice(1).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+    const pascal = parts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+    return Array.from(new Set([t.toLowerCase(), snake, kebab, camel, pascal]));
+  })(candidateToken) : [];
+
+  // Map snippets -> scored objects
+  const scored = snippets.map(snippet => {
+    let score = snippet.relevance ?? 0;
+    const reasons: string[] = [];
+    const contentLower = (snippet.content || '').toLowerCase();
+    const fileNameNoExt = (snippet.filename || '').replace(/\.[^.]+$/, '').toLowerCase();
+
+    // Exact definition check: immediate top priority
+    if (isExactDefinition(snippet, variants)) {
+      score = Math.max(score, 0.95); // bring near top
+      reasons.push('Exact lexical definition match');
     }
-    
-    if (queryAnalysis.isFunctionSearch && isActualFunction(content)) {
-      score += 0.3; // Boost for functions when searching for functions
+
+    // Filename contains candidate: strong boost
+    for (const v of variants) {
+      if (fileNameNoExt === v.toLowerCase()) {
+        score = Math.max(score, 0.9);
+        reasons.push('Filename exact match');
+      } else if (fileNameNoExt.includes(v.toLowerCase())) {
+        score += 0.6;
+        reasons.push('Filename partial match');
+      }
     }
-    
-    // Boost for function name containing "sort"
-    const functionName = extractFunctionName(content);
-    if (functionName && functionName.toLowerCase().includes('sort') && queryLower.includes('sort')) {
-      score += 1.0; // Huge boost for functions named "sort"
-      console.log(`   🚀 HUGE BOOST: Function name contains "sort": ${functionName}`);
+
+    // SymbolSignature partial match
+    if (snippet.symbolSignature) {
+      for (const v of variants) {
+        if ((snippet.symbolSignature || '').toLowerCase().includes(v.toLowerCase())) {
+          score += 0.8;
+          reasons.push('Symbol signature contains token');
+        }
+      }
     }
-    
-    // Boost for file path containing "sort" or "algorithm"
-    if (filePathLower.includes('sort') && queryLower.includes('sort')) {
-      score += 0.6;
-      console.log(`   📁 File path boost: ${snippet.filepath}`);
+
+    // Content identifier matches
+    for (const v of variants) {
+      if (contentLower.includes(v.toLowerCase())) {
+        score += 0.25;
+        reasons.push('Identifier match in content');
+      }
     }
-    
-    if (filePathLower.includes('algorithm') && queryLower.includes('sort')) {
-      score += 0.4;
+
+    // Penalize generic matches for symbol queries (to reduce noise)
+    if ((queryAnalysis.mainIntent === 'class' || queryAnalysis.mainIntent === 'function') && !isExactDefinition(snippet, variants)) {
+      score -= 0.25;
+      reasons.push('Penalized generic match for symbol query');
     }
-    
-    // MAJOR FIX: Don't over-boost random functions when searching for specific functionality
-    if (queryLower.includes('sort') && !containsSortingCode(content) && !filePathLower.includes('sort')) {
-      score -= 0.3; // Penalize non-sorting functions when searching for sorting
-      console.log(`   ⚠️  PENALTY: Not sorting-related`);
-    }
-    
-    // Boost for exact content matches of key terms
-    if (contentLower.includes('bubble') && queryLower.includes('sort')) {
-      score += 0.5;
-    }
-    
-    if (contentLower.includes('quick') && queryLower.includes('sort')) {
-      score += 0.5;
-    }
-    
-    if (contentLower.includes('merge') && queryLower.includes('sort')) {
-      score += 0.5;
-    }
-    
-    // Small boost for exact content matches
-    if (contentLower.includes(queryLower)) {
-      score += 0.1;
-    }
-    
-    return { 
-      ...snippet, 
-      relevance: Math.min(Math.max(score, 0), 1.0) // Keep between 0 and 1
-    };
+
+    // Attach diagnostic and symbolName (safe updates)
+    const diagnosticParts = reasons.length ? reasons : ['semantic match'];
+    snippet.diagnostic = (snippet.diagnostic ? snippet.diagnostic + '; ' : '') + diagnosticParts.join('; ');
+    snippet.symbolName = snippet.symbolName || (snippet.symbolSignature ? (snippet.symbolSignature.match(/(class|function|def|interface|type)\s+([A-Za-z_]\w*)/) || [])[2] : undefined);
+
+    // Clamp score
+    score = Math.min(Math.max(score, 0), 1.0);
+    return { snippet, score };
   });
 
-  const results = ranked.sort((a, b) => (b.relevance ?? 0) - (a.relevance ?? 0));
-  
-  console.log(`📊 Final best score: ${results[0]?.relevance?.toFixed(3)}`);
-  
-  // Log top results with detailed context
-  console.log("🏆 TOP RANKED RESULTS:");
-  results.slice(0, 8).forEach((result, index) => {
-    const functionName = extractFunctionName(result.content) || 'unknown';
-    const isFunc = isActualFunction(result.content);
-    const hasSort = containsSortingCode(result.content);
-    const fileHasSort = result.filepath.toLowerCase().includes('sort');
-    const type = isFunc ? 'FUNCTION' : 'OTHER';
-    const sortFlag = hasSort ? '🔍 SORT-RELATED' : fileHasSort ? '📁 IN SORT FILE' : '❌ NOT SORT';
-    
-    console.log(`   ${index + 1}. [${type}] ${sortFlag} ${functionName} - ${result.relevance?.toFixed(3)}`);
-    console.log(`      File: ${result.filepath}`);
-    if (index < 3) {
-      console.log(`      Preview: ${result.content.substring(0, 120).replace(/\n/g, ' ')}...`);
-    }
-  });
-  
-  return results;
-}
-
-// Improved helper functions
-function containsSortingCode(content: string): boolean {
-  const sortingPatterns = [
-    /sort\s*\(/,                    // sort(
-    /\.sort\s*\(/,                  // .sort(
-    /bubble.*sort/i,                // bubble sort
-    /quick.*sort/i,                 // quick sort  
-    /merge.*sort/i,                 // merge sort
-    /insertion.*sort/i,             // insertion sort
-    /selection.*sort/i,             // selection sort
-    /heap.*sort/i,                  // heap sort
-    /algorithm.*sort/i,             // algorithm sort
-    /comparator|compare/i,          // comparator function
-    /arrange|order.*array/i         // arrange/order array
-  ];
-  
-  return sortingPatterns.some(pattern => pattern.test(content));
-}
-
-function isActualFunction(content: string): boolean {
-  const functionPatterns = [
-    /function\s+\w+\s*\(/,
-    /const\s+\w+\s*=\s*\([^)]*\)\s*=>/,
-    /let\s+\w+\s*=\s*\([^)]*\)\s*=>/,
-    /var\s+\w+\s*=\s*\([^)]*\)\s*=>/,
-    /(?:public|private|protected)?\s+static\s+\w+\(/,
-    /static\s+\w+\(/,
-    /=>\s*{/
-  ];
-  
-  return functionPatterns.some(pattern => pattern.test(content));
-}
-
-function extractFunctionName(content: string): string | null {
-  // Try to extract function name from various patterns
-  const patterns = [
-    /function\s+(\w+)\s*\(/,
-    /const\s+(\w+)\s*=\s*(?:\([^)]*\)|function)\s*[=>{]/,
-    /let\s+(\w+)\s*=\s*(?:\([^)]*\)|function)\s*[=>{]/,
-    /var\s+(\w+)\s*=\s*(?:\([^)]*\)|function)\s*[=>{]/,
-    /class\s+(\w+)/,
-    /interface\s+(\w+)/,
-    /type\s+(\w+)/
-  ];
-  
-  for (const pattern of patterns) {
-    const match = content.match(pattern);
-    if (match) return match[1];
-  }
-  
-  return null;
+  // Sort by computed score desc
+  scored.sort((a, b) => b.score - a.score);
+  // return array of snippets with updated relevance = score
+  return scored.map(s => ({ ...s.snippet, relevance: s.score }));
 }

@@ -10,6 +10,10 @@ export interface CodeSnippet {
   lineNumber: number;
   embedding?: number[];
   relevance?: number;
+  symbolSignature?: string; // Enhanced: symbol info
+  docComment?: string;      // Enhanced: leading comment/docstring
+  diagnostic?: string;      // Added: human-readable diagnostic for UI (optional)
+  symbolName?: string;      // Added: extracted symbol/class/function name (optional)
 }
 
 // Persistent vector store with file system backup
@@ -48,12 +52,12 @@ export class VectorStoreManager {
     if (!workspaceFolders || workspaceFolders.length === 0) {
       return 'no-workspace';
     }
-    
+
     const workspaceInfo = workspaceFolders
       .map(folder => folder.uri.fsPath)
       .sort()
       .join('|');
-    
+
     return this.simpleHash(workspaceInfo).toString();
   }
 
@@ -75,11 +79,11 @@ export class VectorStoreManager {
       const storePath = this.getVectorStoreFilePath();
       const fs = require('fs');
       const path = require('path');
-      
+
       if (fs.existsSync(storePath)) {
         const data = fs.readFileSync(storePath, 'utf8');
         const storedData: VectorStoreData = JSON.parse(data);
-        
+
         // Validate store for current workspace and version
         if (storedData.workspaceHash === this.getWorkspaceHash() && 
             storedData.version === VECTOR_STORE_VERSION) {
@@ -113,13 +117,13 @@ export class VectorStoreManager {
       const fs = require('fs');
       const path = require('path');
       const storePath = this.getVectorStoreFilePath();
-      
+
       // Ensure directory exists
       const dir = path.dirname(storePath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      
+
       const data = JSON.stringify(storeData, null, 2);
       fs.writeFileSync(storePath, data, 'utf8');
       console.log(`Saved ${vectorStore.length} snippets to persistent storage`);
@@ -132,7 +136,7 @@ export class VectorStoreManager {
   async clearVectorStore(): Promise<void> {
     vectorStore = [];
     this.isInitialized = true;
-    
+
     try {
       const fs = require('fs');
       const storePath = this.getVectorStoreFilePath();
@@ -218,7 +222,7 @@ export async function generateEmbeddingsForProject(): Promise<CodeSnippet[]> {
         if (content.length < 10 || content.length > 10000) continue;
 
         // Split file into smaller chunks (function/class level)
-        const chunks = splitCodeIntoChunks(content, document.languageId);
+        const chunks = splitCodeIntoChunksWithContext(content, document.languageId);
         
         if (chunks.length === 0) continue;
 
@@ -251,7 +255,11 @@ export async function generateEmbeddingsForProject(): Promise<CodeSnippet[]> {
               content: chunk.content,
               language: document.languageId,
               lineNumber: chunk.startLine,
-              embedding: normalizedEmbedding
+              embedding: normalizedEmbedding,
+              symbolSignature: chunk.symbolSignature,
+              docComment: chunk.docComment,
+              diagnostic: undefined,
+              symbolName: undefined
             };
             
             vectorStore.push(snippet);
@@ -280,13 +288,77 @@ export async function generateEmbeddingsForProject(): Promise<CodeSnippet[]> {
 }
 
 /**
+ * New: Enhanced chunk splitting with symbol Signature & doc comment
+ */
+export function splitCodeIntoChunksWithContext(content: string, language: string): Array<{ content: string; startLine: number; symbolSignature?: string; docComment?: string }> {
+  const blocks: Array<{ content: string; startLine: number; symbolSignature?: string; docComment?: string }> = [];
+  try {
+    const lines = content.split('\n');
+    let currentBlock: string[] = [];
+    let startLine = 1;
+    let symbolSignature = '';
+    let docCommentLines: string[] = [];
+
+    const symbolRegex = /^\s*(export\s+)?(class|function|interface|type|const|let|var|def)\s+([A-Za-z_]\w*)/;
+
+    function pushBlock() {
+      if (currentBlock.length > 0) {
+        blocks.push({
+          content: currentBlock.join('\n'),
+          startLine,
+          symbolSignature: symbolSignature || undefined,
+          docComment: docCommentLines.join(' ') || undefined
+        });
+      }
+      currentBlock = [];
+      symbolSignature = '';
+      docCommentLines = [];
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+
+      if (/^\/\/|^\/\*|^\*/.test(trimmed)) {
+        // accumulate comment lines to attach as docComment when symbol appears
+        docCommentLines.push(trimmed.replace(/^\/\/\s*|^\/\*\s*|^\*\s*/, ''));
+        continue;
+      }
+
+      const m = trimmed.match(symbolRegex);
+      if (m) {
+        // start of symbol - flush previous block, attach docComment and signature
+        if (currentBlock.length > 0) pushBlock();
+        symbolSignature = trimmed;
+        startLine = i + 1;
+        currentBlock.push(line);
+        // reset docComment accumulator for next block
+        docCommentLines = docCommentLines;
+      } else {
+        currentBlock.push(line);
+      }
+
+      // Force chunk if too large and not a symbol block
+      if (currentBlock.length >= 40) {
+        pushBlock();
+        startLine = i + 2;
+      }
+    }
+    pushBlock();
+  } catch (err) {
+    // fall back to simple chunk
+    const fallback = content.substring(0, 500);
+    return [{ content: fallback, startLine: 1 }];
+  }
+  return blocks;
+}
+
+/**
  * Retrieve candidate code snippets based on query similarity
  */
 export async function retrieveCandidates(query: string, maxResults: number = 10): Promise<CodeSnippet[]> {
   try {
     const vectorManager = getVectorStoreManager();
-    
-    // Load existing vector store first
     await vectorManager.loadVectorStore();
     
     if (vectorStore.length === 0) {
@@ -318,11 +390,6 @@ export async function retrieveCandidates(query: string, maxResults: number = 10)
     for (const snippet of vectorStore) {
       if (snippet.embedding && validateEmbedding(snippet.embedding)) {
         try {
-          // Log embedding dimensions for debugging
-          if (scoredSnippets.length === 0) {
-            console.log(`Snippet embedding dimension: ${snippet.embedding.length}`);
-          }
-          
           const similarity = calculateCosineSimilarity(normalizedQueryEmbedding, snippet.embedding);
           scoredSnippets.push({
             ...snippet,
@@ -343,7 +410,6 @@ export async function retrieveCandidates(query: string, maxResults: number = 10)
 
     console.log(`Returning ${results.length} results (best score: ${results[0]?.relevance?.toFixed(3)})`);
     
-    // If no results pass threshold, still return top matches for debugging
     if (results.length === 0 && scoredSnippets.length > 0) {
       console.log(' No results passed threshold, returning top 3 for debugging');
       return scoredSnippets.slice(0, 3);

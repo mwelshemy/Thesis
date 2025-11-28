@@ -169,22 +169,37 @@ class SidebarViewProvider {
                         await vscode.commands.executeCommand(`vs-code-ai-extension.${action}`, payload);
                     }
                     catch (e) {
+                        // ENHANCED ERROR HANDLER for ECONNRESET/socket/network errors
                         const errorMessage = String(e?.message || '');
-                        if (e && errorMessage && /not found/.test(errorMessage)) {
+                        if (e && (e.code === 'ECONNRESET' || /socket hang up|ECONNRESET|ECONNREFUSED/i.test(errorMessage))) {
+                            this.showAIAnalysis('AI Server Error', 'Unable to communicate with the AI server (connection lost: socket hang up or ECONNRESET).<br>Please check that your local/remote AI server is running and reachable from this machine.<br>If you\'re behind a VPN, proxy, or firewall, ensure outgoing connections are permitted.<br><br><strong>Technical details:</strong><br><code>' +
+                                this._escapeHtml(errorMessage) +
+                                '</code>', action);
+                        }
+                        else if (e && errorMessage && /not found/.test(errorMessage)) {
                             this.showAIAnalysis('Command not found', `The command vs-code-ai-extension.${action} is not registered.`, action);
                         }
                         else if (e && (e.name === 'Canceled' || /canceled/i.test(errorMessage))) {
                             this.showAIAnalysis('Cancelled', `Operation "${action}" was cancelled.`, action);
                         }
                         else {
-                            this.showAIAnalysis('Error', `Failed to run ${action}: ${String(e)}`, action);
+                            this.showAIAnalysis('Error', `Failed to run ${action}: ${this._escapeHtml(errorMessage)}`, action);
                         }
                     }
                     return;
                 }
             }
             catch (err) {
-                console.error('Message handler error', err);
+                const errorMsg = String(err?.message || err);
+                if (errorMsg && /ECONNRESET|ECONNREFUSED|socket hang up/i.test(errorMsg)) {
+                    this.showAIAnalysis('AI Server Error', 'Lost connection to the AI server. Please check that your backend is running.<br>Technical error: <code>' +
+                        this._escapeHtml(errorMsg) +
+                        '</code>');
+                }
+                else {
+                    console.error('Message handler error', err);
+                    this.showAIAnalysis('Unexpected Error', 'Unexpected error in message handling: <br><code>' + this._escapeHtml(errorMsg) + '</code>');
+                }
             }
         });
         this._disposables.push(messageDisp);
@@ -482,6 +497,8 @@ class SidebarViewProvider {
         return text;
     }
     _escapeHtml(unsafe) {
+        if (!unsafe)
+            return '';
         return unsafe
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')

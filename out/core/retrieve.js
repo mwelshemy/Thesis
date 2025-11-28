@@ -37,6 +37,7 @@ exports.VectorStoreManager = void 0;
 exports.initializeVectorStore = initializeVectorStore;
 exports.getVectorStoreManager = getVectorStoreManager;
 exports.generateEmbeddingsForProject = generateEmbeddingsForProject;
+exports.splitCodeIntoChunksWithContext = splitCodeIntoChunksWithContext;
 exports.retrieveCandidates = retrieveCandidates;
 exports.quickTextSearch = quickTextSearch;
 exports.findSimilarSnippets = findSimilarSnippets;
@@ -211,7 +212,7 @@ async function generateEmbeddingsForProject() {
                 if (content.length < 10 || content.length > 10000)
                     continue;
                 // Split file into smaller chunks (function/class level)
-                const chunks = splitCodeIntoChunks(content, document.languageId);
+                const chunks = splitCodeIntoChunksWithContext(content, document.languageId);
                 if (chunks.length === 0)
                     continue;
                 // Prepare chunks for batch embedding
@@ -236,7 +237,11 @@ async function generateEmbeddingsForProject() {
                             content: chunk.content,
                             language: document.languageId,
                             lineNumber: chunk.startLine,
-                            embedding: normalizedEmbedding
+                            embedding: normalizedEmbedding,
+                            symbolSignature: chunk.symbolSignature,
+                            docComment: chunk.docComment,
+                            diagnostic: undefined,
+                            symbolName: undefined
                         };
                         vectorStore.push(snippet);
                         totalSnippets++;
@@ -262,12 +267,73 @@ async function generateEmbeddingsForProject() {
     }
 }
 /**
+ * New: Enhanced chunk splitting with symbol Signature & doc comment
+ */
+function splitCodeIntoChunksWithContext(content, language) {
+    const blocks = [];
+    try {
+        const lines = content.split('\n');
+        let currentBlock = [];
+        let startLine = 1;
+        let symbolSignature = '';
+        let docCommentLines = [];
+        const symbolRegex = /^\s*(export\s+)?(class|function|interface|type|const|let|var|def)\s+([A-Za-z_]\w*)/;
+        function pushBlock() {
+            if (currentBlock.length > 0) {
+                blocks.push({
+                    content: currentBlock.join('\n'),
+                    startLine,
+                    symbolSignature: symbolSignature || undefined,
+                    docComment: docCommentLines.join(' ') || undefined
+                });
+            }
+            currentBlock = [];
+            symbolSignature = '';
+            docCommentLines = [];
+        }
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const trimmed = line.trim();
+            if (/^\/\/|^\/\*|^\*/.test(trimmed)) {
+                // accumulate comment lines to attach as docComment when symbol appears
+                docCommentLines.push(trimmed.replace(/^\/\/\s*|^\/\*\s*|^\*\s*/, ''));
+                continue;
+            }
+            const m = trimmed.match(symbolRegex);
+            if (m) {
+                // start of symbol - flush previous block, attach docComment and signature
+                if (currentBlock.length > 0)
+                    pushBlock();
+                symbolSignature = trimmed;
+                startLine = i + 1;
+                currentBlock.push(line);
+                // reset docComment accumulator for next block
+                docCommentLines = docCommentLines;
+            }
+            else {
+                currentBlock.push(line);
+            }
+            // Force chunk if too large and not a symbol block
+            if (currentBlock.length >= 40) {
+                pushBlock();
+                startLine = i + 2;
+            }
+        }
+        pushBlock();
+    }
+    catch (err) {
+        // fall back to simple chunk
+        const fallback = content.substring(0, 500);
+        return [{ content: fallback, startLine: 1 }];
+    }
+    return blocks;
+}
+/**
  * Retrieve candidate code snippets based on query similarity
  */
 async function retrieveCandidates(query, maxResults = 10) {
     try {
         const vectorManager = getVectorStoreManager();
-        // Load existing vector store first
         await vectorManager.loadVectorStore();
         if (vectorStore.length === 0) {
             console.warn('Vector store is empty. Generating embeddings first...');
@@ -291,10 +357,6 @@ async function retrieveCandidates(query, maxResults = 10) {
         for (const snippet of vectorStore) {
             if (snippet.embedding && (0, embeddings_1.validateEmbedding)(snippet.embedding)) {
                 try {
-                    // Log embedding dimensions for debugging
-                    if (scoredSnippets.length === 0) {
-                        console.log(`Snippet embedding dimension: ${snippet.embedding.length}`);
-                    }
                     const similarity = (0, similarity_1.calculateCosineSimilarity)(normalizedQueryEmbedding, snippet.embedding);
                     scoredSnippets.push({
                         ...snippet,
@@ -312,7 +374,6 @@ async function retrieveCandidates(query, maxResults = 10) {
             .sort((a, b) => (b.relevance || 0) - (a.relevance || 0))
             .slice(0, maxResults);
         console.log(`Returning ${results.length} results (best score: ${results[0]?.relevance?.toFixed(3)})`);
-        // If no results pass threshold, still return top matches for debugging
         if (results.length === 0 && scoredSnippets.length > 0) {
             console.log(' No results passed threshold, returning top 3 for debugging');
             return scoredSnippets.slice(0, 3);
